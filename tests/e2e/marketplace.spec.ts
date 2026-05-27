@@ -1,15 +1,23 @@
 import { expect, test } from "@playwright/test";
 
-test("buyer can discover, appraise, watch, alert, and request support", async ({ page, request }) => {
+test("buyer can discover, appraise, watch, alert, and request support", async ({ page, request }, testInfo) => {
+  const buyerEmail = `buyer+${testInfo.project.name}-${Date.now()}@example.com`;
+
   await page.goto("/");
   await expect(page.getByRole("heading", { name: "GetThe Domain Marketplace" })).toBeVisible();
 
-  await page.goto("/domains/agentforge.ai");
-  await expect(page.getByRole("heading", { name: "agentforge.ai" })).toBeVisible();
+  const listings = await request.get("/api/domains?q=modeldock");
+  expect(listings.ok()).toBeTruthy();
+  const listingBody = await listings.json();
+  const targetListing = listingBody.results[0];
+  expect(targetListing).toBeTruthy();
+
+  await page.goto(`/domains/${targetListing.domain}`);
+  await expect(page.getByRole("heading", { name: targetListing.domain })).toBeVisible();
   await expect(page.getByRole("button", { name: /Make offer/i })).toBeVisible();
 
   const appraisal = await request.post("/appraise", {
-    data: { domain: "agentforge.ai" }
+    data: { domain: targetListing.domain }
   });
   expect(appraisal.ok()).toBeTruthy();
   await expect(appraisal).resolves;
@@ -17,9 +25,9 @@ test("buyer can discover, appraise, watch, alert, and request support", async ({
 
   const offer = await request.post("/offers", {
     data: {
-      listingId: "dom-1",
-      buyerEmail: "buyer@example.com",
-      amount: 7000,
+      listingId: targetListing.id,
+      buyerEmail,
+      amount: Math.max(targetListing.minimumOffer, 7000),
       buyerVerificationTier: "escrow_intent"
     }
   });
@@ -28,8 +36,8 @@ test("buyer can discover, appraise, watch, alert, and request support", async ({
   const watchlist = await request.post("/watchlist", {
     headers: { "x-getthe-role": "buyer" },
     data: {
-      userEmail: "buyer@example.com",
-      listingId: "dom-1"
+      userEmail: buyerEmail,
+      listingId: targetListing.id
     }
   });
   expect(watchlist.ok()).toBeTruthy();
@@ -37,7 +45,7 @@ test("buyer can discover, appraise, watch, alert, and request support", async ({
   const alert = await request.post("/search-alerts", {
     headers: { "x-getthe-role": "buyer" },
     data: {
-      userEmail: "buyer@example.com",
+      userEmail: buyerEmail,
       name: "AI domains",
       filters: { q: "ai" },
       cadence: "weekly"
@@ -48,7 +56,7 @@ test("buyer can discover, appraise, watch, alert, and request support", async ({
   const support = await request.post("/support", {
     headers: { "x-getthe-role": "buyer" },
     data: {
-      requesterEmail: "buyer@example.com",
+      requesterEmail: buyerEmail,
       subject: "Transfer status",
       context: "Buyer funded escrow and needs the next step."
     }
@@ -56,14 +64,14 @@ test("buyer can discover, appraise, watch, alert, and request support", async ({
   expect(support.ok()).toBeTruthy();
 });
 
-test("seller/admin workflow creates listing, verifies ownership, scans, and drafts outreach", async ({ page, request }) => {
+test("seller/admin workflow creates listing, verifies ownership, scans, and drafts outreach", async ({ page, request }, testInfo) => {
   await page.goto("/seller");
   await expect(page.getByRole("heading", { name: "Seller dashboard" })).toBeVisible();
 
   const listing = await request.post("/listings", {
     headers: { "x-getthe-role": "seller" },
     data: {
-      domain: `playwright-${Date.now()}.com`,
+      domain: `playwright-${testInfo.project.name}-${Date.now()}.com`,
       price: 7200,
       minimumOffer: 5000,
       registrar: "Namecheap",
@@ -91,7 +99,7 @@ test("seller/admin workflow creates listing, verifies ownership, scans, and draf
   const outreach = await request.post("/ai/outreach", {
     headers: { "x-getthe-role": "seller" },
     data: {
-      listingId: "dom-6",
+      listingId: listingBody.listing.id,
       targetCompany: "AI Infrastructure Labs",
       targetEmail: "founder@example.com",
       context: "Relevant AI tooling buyer.",

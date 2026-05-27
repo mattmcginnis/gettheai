@@ -92,9 +92,9 @@ Docker Compose can run the production-shaped local stack:
 
 ```bash
 docker compose up --build postgres meilisearch
-DATABASE_URL="postgresql://getthe:getthe@localhost:5432/getthe" npm run prisma:migrate
-DATABASE_URL="postgresql://getthe:getthe@localhost:5432/getthe" npm run prisma:seed
-DATABASE_URL="postgresql://getthe:getthe@localhost:5432/getthe" npm run db:smoke
+DATABASE_URL="postgresql://getthe:getthe@localhost:55432/getthe" npm run prisma:migrate
+DATABASE_URL="postgresql://getthe:getthe@localhost:55432/getthe" npm run prisma:seed
+DATABASE_URL="postgresql://getthe:getthe@localhost:55432/getthe" npm run db:smoke
 MEILISEARCH_HOST="http://localhost:7700" MEILISEARCH_API_KEY="getthe_dev_master_key" npm run dev
 ```
 
