@@ -1,5 +1,5 @@
 import { addDays } from "date-fns";
-import { Prisma } from "@prisma/client";
+import { Prisma, TransactionStatus as PrismaTransactionStatus } from "@prisma/client";
 import { appraiseDomain, getTld, isValidDomain, normalizeDomain } from "@/lib/appraisal";
 import { COMMISSION_RATE } from "@/lib/constants";
 import { createEscrowHandoff } from "@/lib/escrow";
@@ -344,6 +344,80 @@ export async function createTransactionRecord(input: {
   return mapTransaction(row);
 }
 
+export async function updateTransactionFromEscrowEvent(event: {
+  id?: string;
+  transaction_id?: string;
+  status?: string;
+  [key: string]: unknown;
+}) {
+  const escrowId = String(event.transaction_id ?? event.id ?? "unknown");
+  const mappedStatus = mapEscrowStatus(event.status);
+  const timelineEntry = {
+    status: mappedStatus,
+    label: `Escrow.com reported ${event.status ?? "status update"}.`,
+    at: new Date().toISOString()
+  };
+  const auditEvent = {
+    eventType: "escrow.webhook.received",
+    entityType: "transaction",
+    entityId: escrowId,
+    metadata: event
+  };
+
+  if (!isDatabaseConfigured()) {
+    return {
+      received: true,
+      mappedStatus,
+      auditEvent,
+      updated: false,
+      mode: "local"
+    };
+  }
+
+  const prisma = getPrisma();
+  const existing = await prisma.transaction.findFirst({
+    where: {
+      OR: [{ id: escrowId }, { escrowId }]
+    }
+  });
+
+  await prisma.auditEvent.create({
+    data: {
+      ...auditEvent,
+      metadata: auditEvent.metadata as Prisma.InputJsonValue
+    }
+  });
+
+  if (!existing) {
+    return {
+      received: true,
+      mappedStatus,
+      auditEvent,
+      updated: false,
+      mode: "database"
+    };
+  }
+
+  const currentTimeline = Array.isArray(existing.statusTimeline) ? existing.statusTimeline : [];
+  const updated = await prisma.transaction.update({
+    where: { id: existing.id },
+    data: {
+      status: mappedStatus.toUpperCase() as PrismaTransactionStatus,
+      statusTimeline: [...currentTimeline, timelineEntry] as unknown as Prisma.InputJsonValue,
+      payoutState: mappedStatus === "payout_complete" ? "complete" : existing.payoutState
+    },
+    include: transactionInclude()
+  });
+
+  return {
+    received: true,
+    mappedStatus,
+    auditEvent,
+    updated: true,
+    transaction: mapTransaction(updated)
+  };
+}
+
 export async function processPortfolioImport(csv: string) {
   const rows = parsePortfolioCsv(csv);
   const accepted = rows.filter((row) => row.domain && isValidDomain(row.domain) && (row.price ?? 0) >= 500);
@@ -598,6 +672,17 @@ function mapVerificationToPrisma(tier: VerificationTier) {
 
 function mapVerificationFromPrisma(tier: string): VerificationTier {
   return tier.toLowerCase() as VerificationTier;
+}
+
+function mapEscrowStatus(status: string | undefined): TransactionStatus {
+  const normalized = status?.toLowerCase();
+  if (normalized?.includes("fund")) return "buyer_funded";
+  if (normalized?.includes("transfer")) return "domain_transfer_started";
+  if (normalized?.includes("verify")) return "transfer_verified";
+  if (normalized?.includes("release") || normalized?.includes("complete")) return "payout_complete";
+  if (normalized?.includes("cancel")) return "canceled";
+  if (normalized?.includes("dispute")) return "disputed";
+  return "escrow_started";
 }
 
 function dollarsToCents(value: number) {
