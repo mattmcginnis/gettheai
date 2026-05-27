@@ -7,6 +7,7 @@ import { ListingWorkbench } from "@/components/listing-workbench";
 import { MetricCard } from "@/components/metric-card";
 import { OfferManagementPanel } from "@/components/offer-management-panel";
 import { OwnershipVerificationPanel } from "@/components/ownership-verification-panel";
+import { OutreachWorkbench } from "@/components/outreach-workbench";
 import { SupportWorkbench } from "@/components/support-workbench";
 import { getFeaturedListings } from "@/lib/repository";
 
@@ -51,6 +52,7 @@ export default async function SellerPage({
           <ImportWorkbench />
           <OwnershipVerificationPanel />
           <OfferManagementPanel />
+          <OutreachWorkbench />
           <SupportWorkbench />
         </div>
       </section>

@@ -66,6 +66,9 @@ npm run build
 - `POST /support` opens a support case with an AI copilot draft.
 - `POST /admin/review` records admin review actions. Requires `x-getthe-role: admin` in this local scaffold.
 - `POST /admin/search/sync` indexes active listings into Meilisearch, Typesense, or local no-op mode.
+- `POST /admin/moderation/scan` creates moderation flags for trademark, ownership, policy, and pricing risks.
+- `POST /ai/outreach` creates an AI outreach draft that requires human approval.
+- `POST /ai/outreach/approve` sends approved outreach through Postmark or local email fallback.
 
 ## Database Setup
 
@@ -110,4 +113,4 @@ The `app` service is also defined for containerized preview, but running migrati
 - `npm run lint`
 - `npm test`
 - `npm run build`
-- Local smoke tests for `/`, `/api/domains?q=agent`, `POST /appraise`, `POST /transactions`, `POST /offers`, `POST /offers/[offerId]/decision`, `POST /listings`, `POST /listings/[listingId]/verify`, `POST /watchlist`, `POST /search-alerts`, `POST /support`, `POST /webhooks/escrow`, `POST /auth/sign-up`, and `POST /auth/password-reset`
+- Local smoke tests for `/`, `/api/domains?q=agent`, `POST /appraise`, `POST /transactions`, `POST /offers`, `POST /offers/[offerId]/decision`, `POST /listings`, `POST /listings/[listingId]/verify`, `POST /watchlist`, `POST /search-alerts`, `POST /support`, `POST /admin/moderation/scan`, `POST /ai/outreach`, `POST /webhooks/escrow`, `POST /auth/sign-up`, and `POST /auth/password-reset`

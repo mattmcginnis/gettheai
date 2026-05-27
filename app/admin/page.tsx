@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { Activity, BadgeDollarSign, DatabaseZap, Flag, LifeBuoy, ShieldAlert, Users } from "lucide-react";
+import { Activity, BadgeDollarSign, DatabaseZap, Flag, LifeBuoy, Radar, ShieldAlert, Users } from "lucide-react";
 import { MetricCard } from "@/components/metric-card";
 import { formatMoney } from "@/lib/appraisal";
 import { getAdminOverview } from "@/lib/repository";
@@ -65,6 +65,21 @@ export default async function AdminPage() {
             <form action="/admin/search/sync" method="post" className="mt-5">
               <button className="focus-ring rounded-md bg-ink px-4 py-2 text-sm font-semibold text-white hover:bg-mint">
                 Sync search index
+              </button>
+            </form>
+          </div>
+
+          <div className="rounded-md border border-line bg-white p-5 shadow-panel">
+            <div className="flex items-center gap-2">
+              <Radar className="text-coral" size={20} aria-hidden="true" />
+              <h2 className="text-2xl font-bold">Moderation scan</h2>
+            </div>
+            <p className="mt-4 text-sm leading-6 text-ink/68">
+              Scan inventory for trademark, ownership, prohibited-listing, and pricing-risk signals.
+            </p>
+            <form action="/admin/moderation/scan" method="post" className="mt-5">
+              <button className="focus-ring rounded-md bg-ink px-4 py-2 text-sm font-semibold text-white hover:bg-mint">
+                Run scan
               </button>
             </form>
           </div>

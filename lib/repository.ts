@@ -4,6 +4,7 @@ import { appraiseDomain, getTld, isValidDomain, normalizeDomain } from "@/lib/ap
 import { COMMISSION_RATE } from "@/lib/constants";
 import { createEscrowHandoff } from "@/lib/escrow";
 import { parsePortfolioCsv } from "@/lib/imports";
+import { scanListingRisk } from "@/lib/moderation";
 import { getPrisma, isDatabaseConfigured } from "@/lib/prisma";
 import { adminQueue, listings as seedListings } from "@/lib/seed";
 import { filterAndSortListings, getListing as getSeedListing } from "@/lib/search";
@@ -722,6 +723,76 @@ export async function recordAdminReview(input: {
   }
 
   return review;
+}
+
+export async function runModerationScan(input: { actorEmail?: string } = {}) {
+  const listings = await listMarketplaceListings();
+  const flags = listings.flatMap(scanListingRisk);
+
+  if (isDatabaseConfigured()) {
+    const actor = input.actorEmail ? await ensureUser(input.actorEmail, "ADMIN") : null;
+    const prisma = getPrisma();
+    for (const flag of flags) {
+      await prisma.auditEvent.create({
+        data: {
+          actorId: actor?.id,
+          eventType: "moderation.flag.created",
+          entityType: "admin_queue_item",
+          entityId: flag.id,
+          metadata: flag as unknown as Prisma.InputJsonValue
+        }
+      });
+    }
+  }
+
+  return {
+    scannedListings: listings.length,
+    flags
+  };
+}
+
+export async function createAiOutreachDraft(input: {
+  listingId: string;
+  targetCompany: string;
+  targetEmail?: string;
+  context: string;
+  actorEmail?: string;
+}) {
+  const listing = await getMarketplaceListing(input.listingId);
+  if (!listing) {
+    throw new Error("Listing not found.");
+  }
+
+  const draft = await runGuardedAiDraft({
+    kind: "outreach",
+    subject: `${listing.domain} outreach for ${input.targetCompany}`,
+    context: `${input.context}\nListing: ${listing.domain}\nAsk: ${listing.price}\nSignals: ${listing.brandSignals.join(", ")}`
+  });
+  const record = {
+    id: `outreach_${Date.now()}`,
+    listingId: listing.id,
+    domain: listing.domain,
+    targetCompany: input.targetCompany,
+    targetEmail: input.targetEmail,
+    draft,
+    requiresHumanApproval: true,
+    createdAt: new Date().toISOString()
+  };
+
+  if (isDatabaseConfigured()) {
+    const actor = input.actorEmail ? await ensureUser(input.actorEmail, "SELLER") : null;
+    await getPrisma().auditEvent.create({
+      data: {
+        actorId: actor?.id,
+        eventType: "ai.outreach.draft.created",
+        entityType: "domain_listing",
+        entityId: listing.id,
+        metadata: record as unknown as Prisma.InputJsonValue
+      }
+    });
+  }
+
+  return record;
 }
 
 function listingInclude() {
