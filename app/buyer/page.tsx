@@ -1,8 +1,10 @@
 import type { Metadata } from "next";
 import { Bell, BookmarkCheck, ShieldCheck } from "lucide-react";
+import { BuyerActions } from "@/components/buyer-actions";
 import { ButtonLink } from "@/components/button-link";
 import { DomainCard } from "@/components/domain-card";
 import { MetricCard } from "@/components/metric-card";
+import { SupportWorkbench } from "@/components/support-workbench";
 import { TransactionTimeline } from "@/components/transaction-timeline";
 import { getFeaturedListings } from "@/lib/repository";
 
@@ -46,7 +48,11 @@ export default async function BuyerPage() {
               ))}
             </div>
           </div>
-          <TransactionTimeline />
+          <div className="grid gap-6">
+            <BuyerActions defaultListingId={listings[0]?.id ?? "dom-1"} />
+            <TransactionTimeline />
+            <SupportWorkbench />
+          </div>
         </div>
       </section>
     </main>

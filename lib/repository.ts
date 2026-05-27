@@ -15,10 +15,14 @@ import type {
   DomainListing,
   ListingType,
   Offer,
+  SearchAlertItem,
+  SupportCaseItem,
   Transaction,
   TransactionStatus,
-  VerificationTier
+  VerificationTier,
+  WatchlistItem
 } from "@/lib/types";
+import { runGuardedAiDraft } from "@/lib/ai";
 
 const domainListingInclude = {
   seller: {
@@ -141,6 +145,80 @@ export async function createListingDraft(input: {
   });
 
   return mapListing(row as PrismaListing);
+}
+
+export async function verifyListingOwnership(input: {
+  listingId: string;
+  method: "dns_txt" | "nameserver" | "registrar" | "manual";
+  token?: string;
+  actorEmail?: string;
+}) {
+  const listing = await getMarketplaceListing(input.listingId);
+  if (!listing) {
+    throw new Error("Listing not found.");
+  }
+
+  if (!isDatabaseConfigured()) {
+    return {
+      listing: {
+        ...listing,
+        status: "active",
+        ownershipVerified: true
+      },
+      verification: {
+        method: input.method,
+        verifiedAt: new Date().toISOString(),
+        mode: "local"
+      }
+    };
+  }
+
+  const prisma = getPrisma();
+  const row = await getPrismaListingByIdOrDomain(input.listingId);
+  if (!row) {
+    throw new Error("Listing not found.");
+  }
+
+  const existingVerification = row.ownershipVerification as { value?: string };
+  if (input.method !== "manual" && existingVerification.value && input.token !== existingVerification.value) {
+    throw new Error("Ownership verification token does not match.");
+  }
+
+  const verifiedAt = new Date().toISOString();
+  const updated = await prisma.domainListing.update({
+    where: { id: row.id },
+    data: {
+      status: "ACTIVE",
+      ownershipVerification: {
+        ...existingVerification,
+        method: input.method,
+        verifiedAt,
+        verifiedBy: input.actorEmail ?? "system"
+      } as Prisma.InputJsonValue
+    },
+    include: listingInclude()
+  });
+
+  await prisma.auditEvent.create({
+    data: {
+      eventType: "listing.ownership.verified",
+      entityType: "domain_listing",
+      entityId: row.id,
+      metadata: {
+        method: input.method,
+        verifiedAt
+      }
+    }
+  });
+
+  return {
+    listing: mapListing(updated),
+    verification: {
+      method: input.method,
+      verifiedAt,
+      mode: "database"
+    }
+  };
 }
 
 export async function createOfferRecord(input: {
@@ -453,8 +531,157 @@ export async function processPortfolioImport(csv: string) {
   };
 }
 
+export async function createWatchlistItem(input: {
+  userEmail: string;
+  listingId: string;
+}): Promise<WatchlistItem> {
+  const listing = await getMarketplaceListing(input.listingId);
+  if (!listing) {
+    throw new Error("Listing not found.");
+  }
+
+  const createdAt = new Date().toISOString();
+  if (!isDatabaseConfigured()) {
+    return {
+      id: `watch_${Date.now()}`,
+      userEmail: input.userEmail,
+      listingId: listing.id,
+      domain: listing.domain,
+      createdAt
+    };
+  }
+
+  const user = await ensureUser(input.userEmail, "BUYER");
+  const row = await getPrisma().watchlist.upsert({
+    where: {
+      userId_listingId: {
+        userId: user.id,
+        listingId: listing.id
+      }
+    },
+    update: {},
+    create: {
+      userId: user.id,
+      listingId: listing.id
+    },
+    include: {
+      user: true,
+      listing: true
+    }
+  });
+
+  return {
+    id: row.id,
+    userEmail: row.user.email,
+    listingId: row.listingId,
+    domain: row.listing.domain,
+    createdAt: row.createdAt.toISOString()
+  };
+}
+
+export async function createSearchAlert(input: {
+  userEmail: string;
+  name: string;
+  filters: DomainFilters;
+  cadence: SearchAlertItem["cadence"];
+}): Promise<SearchAlertItem> {
+  const createdAt = new Date().toISOString();
+  if (!isDatabaseConfigured()) {
+    return {
+      id: `alert_${Date.now()}`,
+      userEmail: input.userEmail,
+      name: input.name,
+      filters: input.filters,
+      cadence: input.cadence,
+      active: true,
+      createdAt
+    };
+  }
+
+  const user = await ensureUser(input.userEmail, "BUYER");
+  const row = await getPrisma().searchAlert.create({
+    data: {
+      userId: user.id,
+      name: input.name,
+      filters: input.filters as Prisma.InputJsonValue,
+      cadence: input.cadence,
+      active: true
+    },
+    include: {
+      user: true
+    }
+  });
+
+  return {
+    id: row.id,
+    userEmail: row.user.email,
+    name: row.name,
+    filters: row.filters as DomainFilters,
+    cadence: row.cadence as SearchAlertItem["cadence"],
+    active: row.active,
+    createdAt: row.createdAt.toISOString()
+  };
+}
+
+export async function createSupportCase(input: {
+  requesterEmail: string;
+  subject: string;
+  transactionId?: string;
+  context: string;
+}): Promise<SupportCaseItem> {
+  const draft = await runGuardedAiDraft({
+    kind: "support",
+    subject: input.subject,
+    context: input.context
+  });
+  const createdAt = new Date().toISOString();
+
+  if (!isDatabaseConfigured()) {
+    return {
+      id: `case_${Date.now()}`,
+      requesterEmail: input.requesterEmail,
+      subject: input.subject,
+      status: "open",
+      transactionId: input.transactionId,
+      aiDraftResponses: [draft],
+      createdAt
+    };
+  }
+
+  const user = await ensureUser(input.requesterEmail, "BUYER");
+  const row = await getPrisma().supportCase.create({
+    data: {
+      requesterId: user.id,
+      subject: input.subject,
+      transactionId: input.transactionId,
+      status: "OPEN",
+      aiDraftResponses: [draft] as unknown as Prisma.InputJsonValue
+    },
+    include: {
+      requester: true
+    }
+  });
+
+  return mapSupportCase(row);
+}
+
+export async function listSupportCases() {
+  if (!isDatabaseConfigured()) {
+    return [] satisfies SupportCaseItem[];
+  }
+
+  const rows = await getPrisma().supportCase.findMany({
+    include: { requester: true },
+    orderBy: { createdAt: "desc" },
+    take: 10
+  });
+
+  return rows.map(mapSupportCase);
+}
+
 export async function getAdminOverview() {
   const activeListings = await listMarketplaceListings();
+  const supportCases = await listSupportCases();
   const gmv = activeListings.reduce((sum, listing) => sum + listing.price, 0);
   const commission = Math.round(gmv * COMMISSION_RATE);
 
@@ -462,7 +689,8 @@ export async function getAdminOverview() {
     activeListings,
     gmv,
     commission,
-    queue: adminQueue
+    queue: adminQueue,
+    supportCases
   };
 }
 
@@ -672,6 +900,30 @@ function mapVerificationToPrisma(tier: VerificationTier) {
 
 function mapVerificationFromPrisma(tier: string): VerificationTier {
   return tier.toLowerCase() as VerificationTier;
+}
+
+function mapSupportCase(row: {
+  id: string;
+  requester: { email: string };
+  subject: string;
+  status: string;
+  transactionId: string | null;
+  aiDraftResponses: unknown;
+  escalationNotes: string | null;
+  createdAt: Date;
+}): SupportCaseItem {
+  return {
+    id: row.id,
+    requesterEmail: row.requester.email,
+    subject: row.subject,
+    status: row.status.toLowerCase() as SupportCaseItem["status"],
+    transactionId: row.transactionId ?? undefined,
+    aiDraftResponses: Array.isArray(row.aiDraftResponses)
+      ? (row.aiDraftResponses as SupportCaseItem["aiDraftResponses"])
+      : [],
+    escalationNotes: row.escalationNotes ?? undefined,
+    createdAt: row.createdAt.toISOString()
+  };
 }
 
 function mapEscrowStatus(status: string | undefined): TransactionStatus {

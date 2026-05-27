@@ -9,7 +9,7 @@ export const metadata: Metadata = {
 };
 
 export default async function AdminPage() {
-  const { activeListings, gmv, commission, queue } = await getAdminOverview();
+  const { activeListings, gmv, commission, queue, supportCases } = await getAdminOverview();
 
   return (
     <main>
@@ -78,6 +78,18 @@ export default async function AdminPage() {
               <p>Draft transfer status replies from transaction timelines.</p>
               <p>Escalate disputes, trademark complaints, and failed escrow handoffs.</p>
               <p>Require approval before external outreach or negotiation messages are sent.</p>
+            </div>
+            <div className="mt-5 grid gap-3">
+              {supportCases.length ? (
+                supportCases.map((supportCase) => (
+                  <div key={supportCase.id} className="rounded-md border border-line p-3">
+                    <p className="text-sm font-semibold">{supportCase.subject}</p>
+                    <p className="mt-1 text-xs text-ink/55">{supportCase.requesterEmail} · {supportCase.status}</p>
+                  </div>
+                ))
+              ) : (
+                <p className="rounded-md bg-paper p-3 text-sm text-ink/62">No persisted support cases yet.</p>
+              )}
             </div>
           </div>
         </div>

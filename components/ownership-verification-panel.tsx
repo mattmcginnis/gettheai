@@ -1,0 +1,64 @@
+"use client";
+
+import { useState } from "react";
+import { BadgeCheck, Loader2 } from "lucide-react";
+
+export function OwnershipVerificationPanel() {
+  const [listingId, setListingId] = useState("dom-1");
+  const [token, setToken] = useState("");
+  const [method, setMethod] = useState<"dns_txt" | "nameserver" | "registrar" | "manual">("manual");
+  const [message, setMessage] = useState("");
+  const [loading, setLoading] = useState(false);
+
+  async function verify() {
+    setLoading(true);
+    const response = await fetch(`/listings/${encodeURIComponent(listingId)}/verify`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-getthe-role": "seller"
+      },
+      body: JSON.stringify({
+        method,
+        token: token || undefined,
+        actorEmail: "seller@getthe.com"
+      })
+    });
+    const payload = await response.json();
+    setLoading(false);
+    setMessage(response.ok ? `${payload.listing.domain} verified via ${payload.verification.method}.` : payload.error);
+  }
+
+  return (
+    <div className="rounded-md border border-line bg-white p-5 shadow-panel">
+      <div className="flex items-center gap-2">
+        <BadgeCheck className="text-mint" size={20} aria-hidden="true" />
+        <h2 className="text-xl font-bold">Ownership verification</h2>
+      </div>
+      <div className="mt-5 grid gap-3">
+        <label className="grid gap-1 text-sm font-medium">
+          Listing ID or domain
+          <input className="focus-ring h-11 rounded-md border border-line px-3" value={listingId} onChange={(event) => setListingId(event.target.value)} />
+        </label>
+        <label className="grid gap-1 text-sm font-medium">
+          Method
+          <select className="focus-ring h-11 rounded-md border border-line px-3" value={method} onChange={(event) => setMethod(event.target.value as typeof method)}>
+            <option value="manual">Manual review</option>
+            <option value="dns_txt">DNS TXT</option>
+            <option value="nameserver">Nameserver</option>
+            <option value="registrar">Registrar</option>
+          </select>
+        </label>
+        <label className="grid gap-1 text-sm font-medium">
+          Token
+          <input className="focus-ring h-11 rounded-md border border-line px-3" value={token} onChange={(event) => setToken(event.target.value)} placeholder="Required for DNS checks in DB mode" />
+        </label>
+      </div>
+      <button className="focus-ring mt-4 inline-flex h-11 items-center gap-2 rounded-md bg-ink px-4 text-sm font-semibold text-white hover:bg-mint" onClick={verify}>
+        {loading ? <Loader2 className="animate-spin" size={16} /> : <BadgeCheck size={16} />}
+        Verify
+      </button>
+      {message ? <p className="mt-4 rounded-md bg-paper p-3 text-sm text-ink/72">{message}</p> : null}
+    </div>
+  );
+}

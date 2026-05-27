@@ -6,6 +6,8 @@ import { ImportWorkbench } from "@/components/import-workbench";
 import { ListingWorkbench } from "@/components/listing-workbench";
 import { MetricCard } from "@/components/metric-card";
 import { OfferManagementPanel } from "@/components/offer-management-panel";
+import { OwnershipVerificationPanel } from "@/components/ownership-verification-panel";
+import { SupportWorkbench } from "@/components/support-workbench";
 import { getFeaturedListings } from "@/lib/repository";
 
 export const metadata: Metadata = {
@@ -47,7 +49,9 @@ export default async function SellerPage({
           <ListingWorkbench initialDomain={initialDomain ?? "clearledger.com"} />
           <AppraisalWorkbench initialDomain={initialDomain ?? "clearledger.com"} />
           <ImportWorkbench />
+          <OwnershipVerificationPanel />
           <OfferManagementPanel />
+          <SupportWorkbench />
         </div>
       </section>
 

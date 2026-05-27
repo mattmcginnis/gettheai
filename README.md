@@ -53,12 +53,17 @@ npm run build
 - `POST /appraise` appraises a domain and returns estimates, comparable sales, confidence, and listing CTA.
 - `GET /api/domains` searches listings with filters.
 - `POST /listings` creates a pending listing draft and ownership verification record. Requires `x-getthe-role: seller` or `admin` in this local scaffold.
+- `POST /listings/[listingId]/verify` verifies seller ownership through DNS, nameserver, registrar, or manual review.
 - `POST /offers` creates a verified buyer offer and enforces tiered verification.
 - `POST /offers/[offerId]/decision` lets sellers/admins accept, reject, or counter an offer.
 - `POST /transactions` creates an Escrow.com handoff transaction and 7% commission record.
 - `POST /webhooks/escrow` maps Escrow.com events into internal transaction status.
 - `POST /imports/portfolio` accepts CSV portfolio rows and routes invalid or low-price rows to review.
 - `POST /storage/upload` stores seller/admin evidence files locally or in S3/R2.
+- `POST /watchlist` saves a domain to a buyer watchlist.
+- `POST /search-alerts` creates buyer search alerts for matched inventory.
+- `GET /support` lists persisted support cases for admins.
+- `POST /support` opens a support case with an AI copilot draft.
 - `POST /admin/review` records admin review actions. Requires `x-getthe-role: admin` in this local scaffold.
 - `POST /admin/search/sync` indexes active listings into Meilisearch, Typesense, or local no-op mode.
 
@@ -105,4 +110,4 @@ The `app` service is also defined for containerized preview, but running migrati
 - `npm run lint`
 - `npm test`
 - `npm run build`
-- Local smoke tests for `/`, `/api/domains?q=agent`, `POST /appraise`, `POST /transactions`, `POST /offers`, `POST /offers/[offerId]/decision`, `POST /listings`, `POST /webhooks/escrow`, `POST /auth/sign-up`, and `POST /auth/password-reset`
+- Local smoke tests for `/`, `/api/domains?q=agent`, `POST /appraise`, `POST /transactions`, `POST /offers`, `POST /offers/[offerId]/decision`, `POST /listings`, `POST /listings/[listingId]/verify`, `POST /watchlist`, `POST /search-alerts`, `POST /support`, `POST /webhooks/escrow`, `POST /auth/sign-up`, and `POST /auth/password-reset`

@@ -144,3 +144,37 @@ export interface AdminQueueItem {
   status: "open" | "reviewing" | "resolved";
   createdAt: string;
 }
+
+export interface WatchlistItem {
+  id: string;
+  userEmail: string;
+  listingId: string;
+  domain: string;
+  createdAt: string;
+}
+
+export interface SearchAlertItem {
+  id: string;
+  userEmail: string;
+  name: string;
+  filters: DomainFilters;
+  cadence: "instant" | "daily" | "weekly";
+  active: boolean;
+  createdAt: string;
+}
+
+export interface SupportCaseItem {
+  id: string;
+  requesterEmail: string;
+  subject: string;
+  status: "open" | "waiting_on_user" | "escalated" | "resolved";
+  transactionId?: string;
+  aiDraftResponses: Array<{
+    title: string;
+    body: string;
+    provider: string;
+    modelVersion: string;
+  }>;
+  escalationNotes?: string;
+  createdAt: string;
+}
