@@ -76,6 +76,19 @@ npm run prisma:seed
 
 When `DATABASE_URL` is present, search, listing creation, offer creation, transactions, portfolio imports, and admin audit events use Prisma/Postgres.
 
+## Local Infrastructure
+
+Docker Compose can run the production-shaped local stack:
+
+```bash
+docker compose up --build postgres meilisearch
+DATABASE_URL="postgresql://getthe:getthe@localhost:5432/getthe" npm run prisma:migrate
+DATABASE_URL="postgresql://getthe:getthe@localhost:5432/getthe" npm run prisma:seed
+MEILISEARCH_HOST="http://localhost:7700" MEILISEARCH_API_KEY="getthe_dev_master_key" npm run dev
+```
+
+The `app` service is also defined for containerized preview, but running migrations before starting the app is still recommended.
+
 ## Production Integration Points
 
 - Clerk: set Clerk keys to render Clerk auth components. Local mock auth stays available when keys are absent.

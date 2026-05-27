@@ -1,0 +1,11 @@
+.next
+node_modules
+coverage
+.env
+.env*.local
+.git
+.DS_Store
+*.log
+*.tsbuildinfo
+public/generated
+getthe-viability-report.pdf

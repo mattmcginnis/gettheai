@@ -1,0 +1,49 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: getthe
+      POSTGRES_USER: getthe
+      POSTGRES_PASSWORD: getthe
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U getthe -d getthe"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  meilisearch:
+    image: getmeili/meilisearch:v1.11
+    environment:
+      MEILI_MASTER_KEY: getthe_dev_master_key
+      MEILI_NO_ANALYTICS: "true"
+    ports:
+      - "7700:7700"
+    volumes:
+      - meili-data:/meili_data
+
+  app:
+    build:
+      context: .
+    depends_on:
+      postgres:
+        condition: service_healthy
+      meilisearch:
+        condition: service_started
+    environment:
+      DATABASE_URL: postgresql://getthe:getthe@postgres:5432/getthe
+      NEXT_PUBLIC_APP_URL: http://localhost:3000
+      MEILISEARCH_HOST: http://meilisearch:7700
+      MEILISEARCH_API_KEY: getthe_dev_master_key
+      SEARCH_INDEX_NAME: domain_listings
+      ESCROW_MODE: handoff
+      AI_PROVIDER: local
+    ports:
+      - "3000:3000"
+
+volumes:
+  postgres-data:
+  meili-data:
