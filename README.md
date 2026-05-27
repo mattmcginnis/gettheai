@@ -45,6 +45,7 @@ npm run build
 - `/seller` seller dashboard with appraisal and CSV portfolio import.
 - `/buyer` buyer desk with watchlist and transaction tracking.
 - `/admin` trust, review, support, and operating metrics.
+- `/intelligence` marketplace analytics for TLDs, categories, pricing, verification, and keyword signals.
 - `/security` 2FA, verification, ownership, and abuse controls.
 - `/legal` policy posture and operations runbooks.
 
@@ -64,6 +65,7 @@ npm run build
 - `POST /search-alerts` creates buyer search alerts for matched inventory.
 - `GET /support` lists persisted support cases for admins.
 - `POST /support` opens a support case with an AI copilot draft.
+- `GET /api/metrics` returns admin-only marketplace metrics.
 - `POST /admin/review` records admin review actions. Requires `x-getthe-role: admin` in this local scaffold.
 - `POST /admin/search/sync` indexes active listings into Meilisearch, Typesense, or local no-op mode.
 - `POST /admin/moderation/scan` creates moderation flags for trademark, ownership, policy, and pricing risks.

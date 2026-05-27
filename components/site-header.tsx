@@ -6,6 +6,7 @@ import { ButtonLink } from "@/components/button-link";
 const nav: Array<{ href: ComponentProps<typeof Link>["href"]; label: string }> = [
   { href: "/domains", label: "Domains" },
   { href: "/appraisal", label: "Appraise" },
+  { href: "/intelligence", label: "Intel" },
   { href: "/seller", label: "Sell" },
   { href: "/buyer", label: "Buyer Desk" },
   { href: "/admin", label: "Admin" }

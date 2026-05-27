@@ -15,7 +15,7 @@ export function SiteFooter() {
             Escrow.com transaction handoff.
           </p>
         </div>
-        <FooterColumn title="Marketplace" links={[["Search", "/domains"], ["Appraise", "/appraisal"], ["Sell", "/seller"]]} />
+        <FooterColumn title="Marketplace" links={[["Search", "/domains"], ["Appraise", "/appraisal"], ["Intel", "/intelligence"], ["Sell", "/seller"]]} />
         <FooterColumn title="Trust" links={[["Security", "/security"], ["Legal", "/legal"], ["Admin", "/admin"]]} />
         <div>
           <p className="text-sm font-semibold">Canonical</p>
