@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { Activity, BadgeDollarSign, Flag, LifeBuoy, ShieldAlert, Users } from "lucide-react";
+import { Activity, BadgeDollarSign, DatabaseZap, Flag, LifeBuoy, ShieldAlert, Users } from "lucide-react";
 import { MetricCard } from "@/components/metric-card";
 import { formatMoney } from "@/lib/appraisal";
 import { getAdminOverview } from "@/lib/repository";
@@ -51,6 +51,22 @@ export default async function AdminPage() {
                 </div>
               ))}
             </div>
+          </div>
+
+          <div className="rounded-md border border-line bg-white p-5 shadow-panel">
+            <div className="flex items-center gap-2">
+              <DatabaseZap className="text-mint" size={20} aria-hidden="true" />
+              <h2 className="text-2xl font-bold">Indexing</h2>
+            </div>
+            <p className="mt-4 text-sm leading-6 text-ink/68">
+              Sync active listings to Meilisearch or Typesense when credentials are configured.
+              Without credentials, the endpoint reports local search mode.
+            </p>
+            <form action="/admin/search/sync" method="post" className="mt-5">
+              <button className="focus-ring rounded-md bg-ink px-4 py-2 text-sm font-semibold text-white hover:bg-mint">
+                Sync search index
+              </button>
+            </form>
           </div>
 
           <div className="rounded-md border border-line bg-white p-5 shadow-panel">

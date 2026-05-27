@@ -58,7 +58,9 @@ npm run build
 - `POST /transactions` creates an Escrow.com handoff transaction and 7% commission record.
 - `POST /webhooks/escrow` maps Escrow.com events into internal transaction status.
 - `POST /imports/portfolio` accepts CSV portfolio rows and routes invalid or low-price rows to review.
+- `POST /storage/upload` stores seller/admin evidence files locally or in S3/R2.
 - `POST /admin/review` records admin review actions. Requires `x-getthe-role: admin` in this local scaffold.
+- `POST /admin/search/sync` indexes active listings into Meilisearch, Typesense, or local no-op mode.
 
 ## Database Setup
 
@@ -79,10 +81,10 @@ When `DATABASE_URL` is present, search, listing creation, offer creation, transa
 - Clerk: set Clerk keys to render Clerk auth components. Local mock auth stays available when keys are absent.
 - Postgres/Prisma: set `DATABASE_URL`, run `npm run prisma:migrate`, and seed with `npm run prisma:seed`.
 - Search: index `DomainListing` rows into Typesense or Meilisearch and keep Postgres as source of truth.
+- Storage: configure S3/R2-compatible settings to store imports, ownership evidence, reports, and review artifacts.
 - Escrow.com: set `ESCROW_API_EMAIL`, `ESCROW_API_KEY`, and `ESCROW_MODE=api` to use authenticated transaction creation. Webhooks support HMAC verification via `ESCROW_WEBHOOK_SECRET`.
 - Postmark: set `POSTMARK_SERVER_TOKEN` to send transactional email for offers, counters, escrow status, verification, and support.
 - AI provider: set `AI_PROVIDER=openai`, `OPENAI_API_KEY`, and `OPENAI_MODEL` to route guarded draft/appraisal workflows through the OpenAI Responses API while preserving audit metadata.
-- Storage: add S3/R2 for import files, evidence, generated reports, and verification artifacts.
 
 ## Verification Completed
 
