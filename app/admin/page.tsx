@@ -1,5 +1,17 @@
 import type { Metadata } from "next";
-import { Activity, BadgeDollarSign, DatabaseZap, Flag, LifeBuoy, Radar, ShieldAlert, Users } from "lucide-react";
+import {
+  Activity,
+  BadgeDollarSign,
+  DatabaseZap,
+  Flag,
+  HandCoins,
+  LifeBuoy,
+  Radar,
+  ScrollText,
+  ShieldAlert,
+  Tags,
+  Users
+} from "lucide-react";
 import { MetricCard } from "@/components/metric-card";
 import { formatMoney } from "@/lib/appraisal";
 import { getAdminOverview } from "@/lib/repository";
@@ -9,7 +21,7 @@ export const metadata: Metadata = {
 };
 
 export default async function AdminPage() {
-  const { activeListings, gmv, commission, queue, supportCases } = await getAdminOverview();
+  const { activeListings, gmv, commission, queue, supportCases, operations } = await getAdminOverview();
 
   return (
     <main>
@@ -52,6 +64,69 @@ export default async function AdminPage() {
               ))}
             </div>
           </div>
+
+          <div className="rounded-md border border-line bg-white p-5 shadow-panel lg:col-span-2">
+            <div className="flex items-center gap-2">
+              <Users className="text-sky" size={20} aria-hidden="true" />
+              <h2 className="text-2xl font-bold">Users and verification</h2>
+            </div>
+            <div className="mt-5 grid gap-3 md:grid-cols-2">
+              {operations.users.length ? (
+                operations.users.map((user) => (
+                  <AdminRow
+                    key={user.id}
+                    title={user.email}
+                    meta={`${user.role} · ${user.verificationTier} · ${user.twoFactorEnabled ? "2FA" : "2FA missing"}`}
+                  />
+                ))
+              ) : (
+                <p className="rounded-md bg-paper p-3 text-sm text-ink/62">No persisted users yet.</p>
+              )}
+            </div>
+          </div>
+
+          <AdminPanel
+            icon={<Tags className="text-mint" size={20} aria-hidden="true" />}
+            title="Listings"
+            rows={operations.listings.map((listing) => ({
+              id: listing.id,
+              title: listing.domain,
+              meta: `${listing.status} · ${listing.seller} · ${formatMoney(listing.price)}`
+            }))}
+          />
+
+          <AdminPanel
+            icon={<HandCoins className="text-coral" size={20} aria-hidden="true" />}
+            title="Offers"
+            rows={operations.offers.map((offer) => ({
+              id: offer.id,
+              title: `${offer.domain} · ${formatMoney(offer.amount)}`,
+              meta: `${offer.status} · ${offer.buyerEmail}`
+            }))}
+            empty="No persisted offers yet."
+          />
+
+          <AdminPanel
+            icon={<BadgeDollarSign className="text-mint" size={20} aria-hidden="true" />}
+            title="Transactions"
+            rows={operations.transactions.map((transaction) => ({
+              id: transaction.id,
+              title: `${transaction.domain} · ${formatMoney(transaction.amount)}`,
+              meta: `${transaction.status} · ${transaction.escrowId ?? "no escrow id"}`
+            }))}
+            empty="No persisted transactions yet."
+          />
+
+          <AdminPanel
+            icon={<ScrollText className="text-sky" size={20} aria-hidden="true" />}
+            title="Audit trail"
+            rows={operations.auditEvents.map((event) => ({
+              id: event.id,
+              title: event.eventType,
+              meta: `${event.entityType} · ${event.actorEmail ?? "system"}`
+            }))}
+            empty="No persisted audit events yet."
+          />
 
           <div className="rounded-md border border-line bg-white p-5 shadow-panel">
             <div className="flex items-center gap-2">
@@ -110,5 +185,38 @@ export default async function AdminPage() {
         </div>
       </section>
     </main>
+  );
+}
+
+function AdminPanel({
+  icon,
+  title,
+  rows,
+  empty = "No records yet."
+}: {
+  icon: React.ReactNode;
+  title: string;
+  rows: Array<{ id: string; title: string; meta: string }>;
+  empty?: string;
+}) {
+  return (
+    <div className="rounded-md border border-line bg-white p-5 shadow-panel">
+      <div className="flex items-center gap-2">
+        {icon}
+        <h2 className="text-2xl font-bold">{title}</h2>
+      </div>
+      <div className="mt-5 grid gap-3">
+        {rows.length ? rows.map((row) => <AdminRow key={row.id} title={row.title} meta={row.meta} />) : <p className="rounded-md bg-paper p-3 text-sm text-ink/62">{empty}</p>}
+      </div>
+    </div>
+  );
+}
+
+function AdminRow({ title, meta }: { title: string; meta: string }) {
+  return (
+    <div className="rounded-md border border-line p-3">
+      <p className="text-sm font-semibold">{title}</p>
+      <p className="mt-1 text-xs text-ink/55">{meta}</p>
+    </div>
   );
 }

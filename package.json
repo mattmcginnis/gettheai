@@ -18,6 +18,7 @@
     "db:smoke": "node scripts/db-workflow-smoke.js",
     "infra:up": "docker compose up -d postgres meilisearch",
     "infra:down": "docker compose down",
+    "preview:verify-env": "node scripts/verify-preview-env.js",
     "preview:pull": "npx vercel pull --yes --environment=preview",
     "preview:build": "npx vercel build",
     "preview:deploy": "npx vercel deploy --prebuilt"

@@ -14,6 +14,7 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
+      - run: npm run preview:verify-env
       - run: npm run prisma:generate
       - run: npm run typecheck
       - run: npm run lint

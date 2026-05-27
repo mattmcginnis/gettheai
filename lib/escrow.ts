@@ -1,4 +1,4 @@
-import { createHmac } from "node:crypto";
+import { createHmac, timingSafeEqual } from "node:crypto";
 import type { DomainListing } from "@/lib/types";
 
 export interface EscrowHandoffInput {
@@ -16,8 +16,19 @@ export interface EscrowHandoff {
   providerResponse?: unknown;
 }
 
+export class EscrowApiError extends Error {
+  constructor(
+    message: string,
+    readonly status: number,
+    readonly details: unknown
+  ) {
+    super(message);
+    this.name = "EscrowApiError";
+  }
+}
+
 export async function createEscrowHandoff(input: EscrowHandoffInput): Promise<EscrowHandoff> {
-  if (canUseEscrowApi()) {
+  if (isEscrowApiConfigured()) {
     return createEscrowApiTransaction(input);
   }
 
@@ -44,16 +55,44 @@ export function verifyEscrowWebhookSignature(rawBody: string, signature: string 
 
   const digest = createHmac("sha256", secret).update(rawBody).digest("hex");
   const normalized = signature.replace(/^sha256=/, "");
-  return digest.length === normalized.length && digest === normalized;
+  const expected = Buffer.from(digest, "hex");
+  const actual = Buffer.from(normalized, "hex");
+  return expected.length === actual.length && timingSafeEqual(expected, actual);
 }
 
-function canUseEscrowApi() {
+export function isEscrowApiConfigured() {
   return Boolean(
     process.env.ESCROW_API_BASE_URL &&
       process.env.ESCROW_API_EMAIL &&
       process.env.ESCROW_API_KEY &&
       process.env.ESCROW_MODE !== "handoff"
   );
+}
+
+export async function fetchEscrowTransaction(escrowId: string) {
+  if (!isEscrowApiConfigured()) {
+    return {
+      id: escrowId,
+      status: "handoff_pending",
+      mode: "handoff"
+    };
+  }
+
+  const baseUrl = process.env.ESCROW_API_BASE_URL ?? "https://api.escrow.com/2017-09-01";
+  const auth = Buffer.from(`${process.env.ESCROW_API_EMAIL}:${process.env.ESCROW_API_KEY}`).toString("base64");
+  const response = await fetch(`${baseUrl.replace(/\/$/, "")}/transaction/${encodeURIComponent(escrowId)}`, {
+    headers: {
+      authorization: `Basic ${auth}`,
+      "content-type": "application/json"
+    }
+  });
+  const payload = await response.json().catch(() => ({}));
+
+  if (!response.ok) {
+    throw new EscrowApiError(`Escrow.com transaction lookup failed: ${response.status}`, response.status, payload);
+  }
+
+  return payload;
 }
 
 async function createEscrowApiTransaction(input: EscrowHandoffInput): Promise<EscrowHandoff> {
@@ -71,7 +110,7 @@ async function createEscrowApiTransaction(input: EscrowHandoffInput): Promise<Es
   const payload = await response.json().catch(() => ({}));
 
   if (!response.ok) {
-    throw new Error(`Escrow.com transaction creation failed: ${response.status}`);
+    throw new EscrowApiError(`Escrow.com transaction creation failed: ${response.status}`, response.status, payload);
   }
 
   const escrowId = String(payload.id ?? payload.transaction_id ?? `escrow_${Date.now()}`);

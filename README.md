@@ -9,9 +9,9 @@ AI-enabled domain marketplace for the GetThe Network. The app uses `getthe.com` 
 - Domain search, listing detail pages, appraisal workbench, buyer desk, seller dashboard, admin operations, legal/security pages, sign-in/sign-up/security screens.
 - Public API handlers for appraisal, domain search, listing creation, offers, Escrow.com transaction handoff, escrow webhooks, portfolio import, and admin review.
 - Prisma/Postgres schema, generated Prisma client, repository layer, and seed script for persisted production data.
-- Clerk-ready provider/auth screens with local mock auth fallback when Clerk keys are absent.
+- Clerk-ready provider/auth screens, middleware, role/2FA route enforcement, Clerk-to-Postgres user sync, and local mock auth fallback when Clerk keys are absent.
 - Deterministic local AI appraisal engine with comparable sales, confidence scoring, keyword signals, version metadata, and disclaimers.
-- Escrow.com handoff/API adapter that records 7% commission and transaction timeline without holding platform funds.
+- Escrow.com handoff/API adapter with failure audit events, status sync, webhook verification, and 7% commission records without holding platform funds.
 - Postmark-ready transactional email adapter with local queue fallback.
 - Unit tests for appraisal, search, and transaction verification logic.
 
@@ -59,6 +59,8 @@ npm run build
 - `POST /offers/[offerId]/decision` lets sellers/admins accept, reject, or counter an offer.
 - `POST /transactions` creates an Escrow.com handoff transaction and 7% commission record.
 - `POST /webhooks/escrow` maps Escrow.com events into internal transaction status.
+- `GET /api/auth/me` returns the current local or Clerk-backed auth session.
+- `GET /api/health` reports DB, search, escrow, AI, and storage integration modes.
 - `POST /imports/portfolio` accepts CSV portfolio rows and routes invalid or low-price rows to review.
 - `POST /storage/upload` stores seller/admin evidence files locally or in S3/R2.
 - `POST /watchlist` saves a domain to a buyer watchlist.
@@ -66,8 +68,10 @@ npm run build
 - `GET /support` lists persisted support cases for admins.
 - `POST /support` opens a support case with an AI copilot draft.
 - `GET /api/metrics` returns admin-only marketplace metrics.
+- `GET /admin/operations` returns users, listings, offers, transactions, and audit events for admin tooling.
 - `POST /admin/review` records admin review actions. Requires `x-getthe-role: admin` in this local scaffold.
 - `POST /admin/search/sync` indexes active listings into Meilisearch, Typesense, or local no-op mode.
+- `POST /admin/escrow/sync` pulls Escrow.com transaction status into the internal timeline when API credentials are configured.
 - `POST /admin/moderation/scan` creates moderation flags for trademark, ownership, policy, and pricing risks.
 - `POST /ai/outreach` creates an AI outreach draft that requires human approval.
 - `POST /ai/outreach/approve` sends approved outreach through Postmark or local email fallback.
@@ -118,6 +122,7 @@ Preview deployment scaffolding is included through `vercel.json` and `.github/wo
 Manual preview commands:
 
 ```bash
+npm run preview:verify-env
 npm run preview:pull
 npm run preview:build
 npm run preview:deploy
@@ -125,11 +130,11 @@ npm run preview:deploy
 
 ## Production Integration Points
 
-- Clerk: set Clerk keys to render Clerk auth components. Local mock auth stays available when keys are absent.
+- Clerk: set Clerk keys to render Clerk auth components and enable Clerk middleware. Roles are read from session claims or metadata (`role`) and privileged seller/admin routes require a 2FA/MFA signal before access. Local role headers are ignored once Clerk keys are configured unless `ALLOW_LOCAL_AUTH_FALLBACK=true`.
 - Postgres/Prisma: set `DATABASE_URL`, run `npm run prisma:migrate`, and seed with `npm run prisma:seed`.
-- Search: index `DomainListing` rows into Typesense or Meilisearch and keep Postgres as source of truth.
+- Search: `POST /admin/search/sync` indexes `DomainListing` rows into Meilisearch/Typesense. When Meilisearch is configured, marketplace search queries Meilisearch and hydrates authoritative records from Postgres.
 - Storage: configure S3/R2-compatible settings to store imports, ownership evidence, reports, and review artifacts.
-- Escrow.com: set `ESCROW_API_EMAIL`, `ESCROW_API_KEY`, and `ESCROW_MODE=api` to use authenticated transaction creation. Webhooks support HMAC verification via `ESCROW_WEBHOOK_SECRET`.
+- Escrow.com: set `ESCROW_API_EMAIL`, `ESCROW_API_KEY`, and `ESCROW_MODE=api` to use authenticated transaction creation and admin status sync. Webhooks support HMAC verification via `ESCROW_WEBHOOK_SECRET`.
 - Postmark: set `POSTMARK_SERVER_TOKEN` to send transactional email for offers, counters, escrow status, verification, and support.
 - AI provider: set `AI_PROVIDER=openai`, `OPENAI_API_KEY`, and `OPENAI_MODEL` to route guarded draft/appraisal workflows through the OpenAI Responses API while preserving audit metadata.
 

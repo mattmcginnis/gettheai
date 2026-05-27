@@ -2,11 +2,12 @@ import { addDays } from "date-fns";
 import { Prisma, TransactionStatus as PrismaTransactionStatus } from "@prisma/client";
 import { appraiseDomain, getTld, isValidDomain, normalizeDomain } from "@/lib/appraisal";
 import { COMMISSION_RATE } from "@/lib/constants";
-import { createEscrowHandoff } from "@/lib/escrow";
+import { EscrowApiError, createEscrowHandoff, fetchEscrowTransaction } from "@/lib/escrow";
 import { parsePortfolioCsv } from "@/lib/imports";
 import { scanListingRisk } from "@/lib/moderation";
 import { getPrisma, isDatabaseConfigured } from "@/lib/prisma";
 import { adminQueue, listings as seedListings } from "@/lib/seed";
+import { canQuerySearchIndex, searchIndexedListingIds } from "@/lib/search-index";
 import { filterAndSortListings, getListing as getSeedListing } from "@/lib/search";
 import { calculateCommission, canPlaceOffer } from "@/lib/transactions";
 import type {
@@ -72,6 +73,27 @@ export async function listMarketplaceListings(filters: DomainFilters = {}) {
   }
 
   const prisma = getPrisma();
+  if (canQuerySearchIndex()) {
+    const indexedIds = await searchIndexedListingIds(filters).catch(() => null);
+    if (indexedIds) {
+      if (!indexedIds.length) {
+        return [];
+      }
+
+      const rows = await prisma.domainListing.findMany({
+        where: {
+          id: {
+            in: indexedIds
+          }
+        },
+        include: listingInclude()
+      });
+      const mapped = rows.map(mapListing);
+      const position = new Map(indexedIds.map((id, index) => [id, index]));
+      return mapped.sort((a, b) => (position.get(a.id) ?? 0) - (position.get(b.id) ?? 0));
+    }
+  }
+
   const rows = await prisma.domainListing.findMany({
     include: listingInclude(),
     orderBy: { createdAt: "desc" }
@@ -421,6 +443,31 @@ export async function createTransactionRecord(input: {
     buyerEmail: input.buyerEmail,
     sellerEmail,
     amount
+  }).catch(async (error) => {
+    if (isDatabaseConfigured()) {
+      const metadata: Record<string, unknown> = {
+        listingId: listing.id,
+        buyerEmail: input.buyerEmail,
+        amount,
+        message: error instanceof Error ? error.message : "Escrow.com handoff failed."
+      };
+
+      if (error instanceof EscrowApiError) {
+        metadata.status = error.status;
+        metadata.details = error.details;
+      }
+
+      await getPrisma().auditEvent.create({
+        data: {
+          eventType: "escrow.handoff.failed",
+          entityType: "domain_listing",
+          entityId: listing.id,
+          metadata: metadata as Prisma.InputJsonValue
+        }
+      });
+    }
+
+    throw error;
   });
   const now = new Date().toISOString();
   const transaction: Transaction = {
@@ -551,6 +598,54 @@ export async function updateTransactionFromEscrowEvent(event: {
     auditEvent,
     updated: true,
     transaction: mapTransaction(updated)
+  };
+}
+
+export async function syncTransactionEscrowStatus(input: { transactionId: string; actorEmail?: string }) {
+  if (!isDatabaseConfigured()) {
+    return {
+      synced: false,
+      mode: "local",
+      reason: "DATABASE_URL is not configured."
+    };
+  }
+
+  const prisma = getPrisma();
+  const transaction = await prisma.transaction.findFirst({
+    where: {
+      OR: [{ id: input.transactionId }, { escrowId: input.transactionId }]
+    }
+  });
+
+  if (!transaction) {
+    throw new Error("Transaction not found.");
+  }
+
+  const providerPayload = await fetchEscrowTransaction(transaction.escrowId ?? transaction.id);
+  const result = await updateTransactionFromEscrowEvent({
+    ...(providerPayload as Record<string, unknown>),
+    id: transaction.escrowId ?? transaction.id,
+    transaction_id: transaction.escrowId ?? transaction.id
+  });
+  const actor = input.actorEmail ? await ensureUser(input.actorEmail, "ADMIN") : null;
+
+  await prisma.auditEvent.create({
+    data: {
+      actorId: actor?.id,
+      eventType: "escrow.status.synced",
+      entityType: "transaction",
+      entityId: transaction.id,
+      metadata: {
+        transactionId: transaction.id,
+        escrowId: transaction.escrowId,
+        providerPayload
+      } as Prisma.InputJsonValue
+    }
+  });
+
+  return {
+    synced: true,
+    result
   };
 }
 
@@ -740,6 +835,7 @@ export async function listSupportCases() {
 export async function getAdminOverview() {
   const activeListings = await listMarketplaceListings();
   const supportCases = await listSupportCases();
+  const operations = await getAdminOperations();
   const gmv = activeListings.reduce((sum, listing) => sum + listing.price, 0);
   const commission = Math.round(gmv * COMMISSION_RATE);
 
@@ -748,7 +844,80 @@ export async function getAdminOverview() {
     gmv,
     commission,
     queue: adminQueue,
-    supportCases
+    supportCases,
+    operations
+  };
+}
+
+export async function getAdminOperations() {
+  if (!isDatabaseConfigured()) {
+    return {
+      users: [],
+      listings: seedListings.slice(0, 8).map((listing) => ({
+        id: listing.id,
+        domain: listing.domain,
+        status: listing.status,
+        seller: listing.seller.publicName,
+        price: listing.price,
+        updatedAt: listing.createdAt
+      })),
+      offers: [],
+      transactions: [],
+      auditEvents: []
+    };
+  }
+
+  const prisma = getPrisma();
+  const [users, listings, offers, transactions, auditEvents] = await Promise.all([
+    prisma.user.findMany({ orderBy: { createdAt: "desc" }, take: 8 }),
+    prisma.domainListing.findMany({ include: listingInclude(), orderBy: { updatedAt: "desc" }, take: 8 }),
+    prisma.offer.findMany({ include: offerInclude(), orderBy: { updatedAt: "desc" }, take: 8 }),
+    prisma.transaction.findMany({ include: transactionInclude(), orderBy: { updatedAt: "desc" }, take: 8 }),
+    prisma.auditEvent.findMany({ include: { actor: true }, orderBy: { createdAt: "desc" }, take: 12 })
+  ]);
+
+  return {
+    users: users.map((user) => ({
+      id: user.id,
+      email: user.email,
+      role: user.role.toLowerCase(),
+      verificationTier: mapVerificationFromPrisma(user.verificationTier),
+      twoFactorEnabled: user.twoFactorEnabled,
+      createdAt: user.createdAt.toISOString()
+    })),
+    listings: listings.map((listing) => ({
+      id: listing.id,
+      domain: listing.domain,
+      status: listing.status.toLowerCase(),
+      seller: listing.seller.sellerProfile?.publicName ?? listing.seller.displayName ?? listing.seller.email,
+      price: centsToDollars(listing.priceCents),
+      updatedAt: listing.updatedAt.toISOString()
+    })),
+    offers: offers.map((offer) => ({
+      id: offer.id,
+      domain: offer.listing.domain,
+      buyerEmail: offer.buyer.email,
+      amount: centsToDollars(offer.amountCents),
+      status: offer.status.toLowerCase(),
+      updatedAt: offer.updatedAt.toISOString()
+    })),
+    transactions: transactions.map((transaction) => ({
+      id: transaction.id,
+      domain: transaction.listing.domain,
+      buyerEmail: transaction.buyer.email,
+      escrowId: transaction.escrowId,
+      amount: centsToDollars(transaction.amountCents),
+      status: transaction.status.toLowerCase(),
+      updatedAt: transaction.updatedAt.toISOString()
+    })),
+    auditEvents: auditEvents.map((event) => ({
+      id: event.id,
+      actorEmail: event.actor?.email,
+      eventType: event.eventType,
+      entityType: event.entityType,
+      entityId: event.entityId,
+      createdAt: event.createdAt.toISOString()
+    }))
   };
 }
 
