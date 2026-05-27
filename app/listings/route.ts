@@ -13,7 +13,7 @@ const schema = z.object({
 });
 
 export async function POST(request: NextRequest) {
-  if (!hasRole(request, ["seller", "admin"])) {
+  if (!(await hasRole(request, ["seller", "admin"]))) {
     return NextResponse.json({ error: "Seller role and 2FA are required before creating listings." }, { status: 403 });
   }
 

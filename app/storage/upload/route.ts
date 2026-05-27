@@ -3,7 +3,7 @@ import { hasRole } from "@/lib/auth";
 import { storeObject } from "@/lib/storage";
 
 export async function POST(request: NextRequest) {
-  if (!hasRole(request, ["seller", "admin"])) {
+  if (!(await hasRole(request, ["seller", "admin"]))) {
     return NextResponse.json({ error: "Seller or admin role required." }, { status: 403 });
   }
 

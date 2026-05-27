@@ -1,0 +1,10 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "framework": "nextjs",
+  "installCommand": "npm ci",
+  "buildCommand": "npm run prisma:generate && npm run build",
+  "env": {
+    "AI_PROVIDER": "local",
+    "ESCROW_MODE": "handoff"
+  }
+}

@@ -8,7 +8,7 @@ const schema = z.object({
 });
 
 export async function POST(request: NextRequest) {
-  if (!hasRole(request, ["admin"])) {
+  if (!(await hasRole(request, ["admin"]))) {
     return NextResponse.json({ error: "Admin role required." }, { status: 403 });
   }
 

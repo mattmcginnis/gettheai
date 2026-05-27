@@ -10,9 +10,17 @@
     "lint": "eslint . --ext .ts,.tsx",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
+    "test:e2e": "playwright test",
+    "test:e2e:list": "playwright test --list",
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
-    "prisma:seed": "node prisma/seed.js"
+    "prisma:seed": "node prisma/seed.js",
+    "db:smoke": "node scripts/db-workflow-smoke.js",
+    "infra:up": "docker compose up -d postgres meilisearch",
+    "infra:down": "docker compose down",
+    "preview:pull": "npx vercel pull --yes --environment=preview",
+    "preview:build": "npx vercel build",
+    "preview:deploy": "npx vercel deploy --prebuilt"
   },
   "dependencies": {
     "@clerk/nextjs": "^6.12.0",
@@ -27,6 +35,7 @@
     "zod": "^3.24.4"
   },
   "devDependencies": {
+    "@playwright/test": "^1.56.1",
     "@types/node": "^22.15.21",
     "@types/react": "^19.1.5",
     "@types/react-dom": "^19.1.5",

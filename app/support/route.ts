@@ -11,7 +11,7 @@ const schema = z.object({
 });
 
 export async function GET(request: NextRequest) {
-  if (!hasRole(request, ["admin"])) {
+  if (!(await hasRole(request, ["admin"]))) {
     return NextResponse.json({ error: "Admin role required." }, { status: 403 });
   }
 
@@ -19,7 +19,7 @@ export async function GET(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
-  if (!hasRole(request, ["buyer", "seller", "admin"])) {
+  if (!(await hasRole(request, ["buyer", "seller", "admin"]))) {
     return NextResponse.json({ error: "Signed-in user required." }, { status: 403 });
   }
 

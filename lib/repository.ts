@@ -52,10 +52,23 @@ const transactionIncludeConfig = {
 type PrismaListing = Prisma.DomainListingGetPayload<{ include: typeof domainListingInclude }>;
 type PrismaOffer = Prisma.OfferGetPayload<{ include: typeof offerIncludeConfig }>;
 type PrismaTransaction = Prisma.TransactionGetPayload<{ include: typeof transactionIncludeConfig }>;
+type LocalDraftListing = DomainListing & {
+  ownershipVerification?: {
+    method: "dns_txt" | "nameserver" | "registrar" | "manual";
+    record: string;
+    value: string;
+    verifiedAt?: string;
+    verifiedBy?: string;
+  };
+};
+
+const localDraftListings = ((globalThis as typeof globalThis & {
+  __gettheLocalDraftListings?: LocalDraftListing[];
+}).__gettheLocalDraftListings ??= []);
 
 export async function listMarketplaceListings(filters: DomainFilters = {}) {
   if (!isDatabaseConfigured()) {
-    return filterAndSortListings(seedListings, filters);
+    return filterAndSortListings([...seedListings, ...localDraftListings], filters);
   }
 
   const prisma = getPrisma();
@@ -69,7 +82,12 @@ export async function listMarketplaceListings(filters: DomainFilters = {}) {
 
 export async function getMarketplaceListing(identifier: string) {
   if (!isDatabaseConfigured()) {
-    return getSeedListing(identifier) ?? seedListings.find((listing) => listing.id === identifier) ?? null;
+    const normalizedIdentifier = identifier.toLowerCase();
+    const localDraft = localDraftListings.find(
+      (listing) => listing.id === identifier || listing.domain === normalizedIdentifier
+    );
+
+    return localDraft ?? getSeedListing(identifier) ?? seedListings.find((listing) => listing.id === identifier) ?? null;
   }
 
   const row = await getPrismaListingByIdOrDomain(identifier);
@@ -96,24 +114,45 @@ export async function createListingDraft(input: {
 
   const appraisal = appraiseDomain(domain);
   const ownershipVerification = {
-    method: "dns_txt",
+    method: "dns_txt" as const,
     record: `_getthe-verify.${domain}`,
     value: `getthe=${cryptoSafeId()}`
   };
 
   if (!isDatabaseConfigured()) {
-    return {
+    const draft: LocalDraftListing = {
       id: `draft_${Date.now()}`,
       domain,
       tld: getTld(domain),
       status: "pending_verification",
       price: input.price,
       minimumOffer: input.minimumOffer ?? Math.round(input.price * 0.65),
-      registrar: input.registrar,
+      registrar: input.registrar ?? "Unknown",
+      seller: {
+        id: "seller-local",
+        publicName: "GetThe Seller",
+        slug: "getthe-seller",
+        verified: true,
+        transactionCount: 0,
+        avgResponseHours: 6
+      },
+      listingType: "buy_now_and_offer",
+      commissionRate: COMMISSION_RATE,
+      ownershipVerified: false,
+      description: appraisal.generatedSummary,
       category: input.category,
+      trafficMonthly: 0,
+      domainAgeYears: 0,
+      seoTitle: `${domain} is for sale`,
+      seoDescription: `Buy ${domain} through GetThe with Escrow.com transaction handoff.`,
+      brandSignals: appraisal.keywordSignals,
+      createdAt: new Date().toISOString(),
       ownershipVerification,
       appraisal
     };
+
+    localDraftListings.unshift(draft);
+    return draft;
   }
 
   const prisma = getPrisma();
@@ -160,15 +199,33 @@ export async function verifyListingOwnership(input: {
   }
 
   if (!isDatabaseConfigured()) {
+    const localDraft = localDraftListings.find((item) => item.id === input.listingId || item.domain === input.listingId);
+    const verifiedAt = new Date().toISOString();
+
+    if (localDraft) {
+      localDraft.status = "active";
+      localDraft.ownershipVerified = true;
+      localDraft.ownershipVerification = {
+        ...(localDraft.ownershipVerification ?? {
+          method: input.method,
+          record: `_getthe-verify.${localDraft.domain}`,
+          value: input.token ?? "manual-review"
+        }),
+        method: input.method,
+        verifiedAt,
+        verifiedBy: input.actorEmail ?? "system"
+      };
+    }
+
     return {
       listing: {
-        ...listing,
+        ...(localDraft ?? listing),
         status: "active",
         ownershipVerified: true
       },
       verification: {
         method: input.method,
-        verifiedAt: new Date().toISOString(),
+        verifiedAt,
         mode: "local"
       }
     };

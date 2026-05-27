@@ -10,7 +10,7 @@ const schema = z.object({
 });
 
 export async function POST(request: NextRequest) {
-  if (!hasRole(request, ["seller", "admin"])) {
+  if (!(await hasRole(request, ["seller", "admin"]))) {
     return NextResponse.json({ error: "Seller or admin approval required." }, { status: 403 });
   }
 

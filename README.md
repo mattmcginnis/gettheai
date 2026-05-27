@@ -94,10 +94,34 @@ Docker Compose can run the production-shaped local stack:
 docker compose up --build postgres meilisearch
 DATABASE_URL="postgresql://getthe:getthe@localhost:5432/getthe" npm run prisma:migrate
 DATABASE_URL="postgresql://getthe:getthe@localhost:5432/getthe" npm run prisma:seed
+DATABASE_URL="postgresql://getthe:getthe@localhost:5432/getthe" npm run db:smoke
 MEILISEARCH_HOST="http://localhost:7700" MEILISEARCH_API_KEY="getthe_dev_master_key" npm run dev
 ```
 
 The `app` service is also defined for containerized preview, but running migrations before starting the app is still recommended.
+
+## E2E And Preview Deploys
+
+Browser workflow coverage is available through Playwright:
+
+```bash
+npx playwright install
+npm run test:e2e
+```
+
+Preview deployment scaffolding is included through `vercel.json` and `.github/workflows/preview.yml`. Configure these repository secrets to enable automated Vercel preview deploys:
+
+- `VERCEL_TOKEN`
+- `VERCEL_ORG_ID`
+- `VERCEL_PROJECT_ID`
+
+Manual preview commands:
+
+```bash
+npm run preview:pull
+npm run preview:build
+npm run preview:deploy
+```
 
 ## Production Integration Points
 
@@ -114,5 +138,6 @@ The `app` service is also defined for containerized preview, but running migrati
 - `npm run typecheck`
 - `npm run lint`
 - `npm test`
+- `npm run test:e2e:list`
 - `npm run build`
 - Local smoke tests for `/`, `/api/domains?q=agent`, `POST /appraise`, `POST /transactions`, `POST /offers`, `POST /offers/[offerId]/decision`, `POST /listings`, `POST /listings/[listingId]/verify`, `POST /watchlist`, `POST /search-alerts`, `POST /support`, `POST /admin/moderation/scan`, `POST /ai/outreach`, `POST /webhooks/escrow`, `POST /auth/sign-up`, and `POST /auth/password-reset`

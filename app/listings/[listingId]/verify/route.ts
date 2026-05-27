@@ -13,7 +13,7 @@ export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ listingId: string }> }
 ) {
-  if (!hasRole(request, ["seller", "admin"])) {
+  if (!(await hasRole(request, ["seller", "admin"]))) {
     return NextResponse.json({ error: "Seller or admin role required." }, { status: 403 });
   }
 

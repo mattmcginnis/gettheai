@@ -65,10 +65,34 @@ export function parseSessionCookie(value: string | undefined) {
   }
 }
 
-export function roleFromRequest(request: Request) {
+export async function getRequestAuthContext(request: Request) {
+  const clerkContext = await getClerkAuthContext(request);
+  if (clerkContext) {
+    return clerkContext;
+  }
+
+  return getLocalAuthContext(request);
+}
+
+export async function roleFromRequest(request: Request) {
+  return (await getRequestAuthContext(request))?.role ?? null;
+}
+
+export async function hasRole(request: Request, roles: AuthRole[]) {
+  const role = await roleFromRequest(request);
+  return Boolean(role && roles.includes(role));
+}
+
+function getLocalAuthContext(request: Request): AuthSession | null {
   const explicitRole = request.headers.get("x-getthe-role") as AuthRole | null;
   if (explicitRole && ["buyer", "seller", "admin"].includes(explicitRole)) {
-    return explicitRole;
+    return {
+      userId: request.headers.get("x-getthe-user-id") ?? `local_${explicitRole}`,
+      email: request.headers.get("x-getthe-email") ?? `${explicitRole}@getthe.local`,
+      role: explicitRole,
+      verificationTier: explicitRole === "buyer" ? "email" : "two_factor",
+      twoFactorEnabled: explicitRole !== "buyer"
+    };
   }
 
   const cookie = request.headers
@@ -78,10 +102,67 @@ export function roleFromRequest(request: Request) {
     .find((part) => part.startsWith("getthe_session="))
     ?.split("=")[1];
 
-  return parseSessionCookie(cookie)?.role ?? null;
+  return parseSessionCookie(cookie);
 }
 
-export function hasRole(request: Request, roles: AuthRole[]) {
-  const role = roleFromRequest(request);
-  return Boolean(role && roles.includes(role));
+async function getClerkAuthContext(request: Request): Promise<AuthSession | null> {
+  if (!process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY && !process.env.CLERK_SECRET_KEY) {
+    return null;
+  }
+
+  try {
+    const { getAuth } = await import("@clerk/nextjs/server");
+    const clerkAuth = getAuth(request as Parameters<typeof getAuth>[0]);
+    const claims = clerkAuth.sessionClaims as ClerkClaims | null | undefined;
+    const role = normalizeRole(
+      claims?.metadata?.role ??
+        claims?.publicMetadata?.role ??
+        claims?.privateMetadata?.role ??
+        claims?.role
+    );
+
+    if (!clerkAuth.userId || !role) {
+      return null;
+    }
+
+    return {
+      userId: clerkAuth.userId,
+      email: getClaimEmail(claims),
+      role,
+      verificationTier: role === "buyer" ? "email" : "two_factor",
+      twoFactorEnabled: role !== "buyer" || Boolean(claims?.two_factor_enabled)
+    };
+  } catch {
+    return null;
+  }
+}
+
+function normalizeRole(value: unknown): AuthRole | null {
+  if (value === "buyer" || value === "seller" || value === "admin") {
+    return value;
+  }
+
+  return null;
+}
+
+function getClaimEmail(claims: ClerkClaims | null | undefined) {
+  const email = claims?.email ?? claims?.primary_email_address ?? claims?.email_address;
+  return typeof email === "string" ? email : "user@getthe.local";
+}
+
+interface ClerkClaims {
+  email?: unknown;
+  primary_email_address?: unknown;
+  email_address?: unknown;
+  role?: unknown;
+  metadata?: {
+    role?: unknown;
+  };
+  publicMetadata?: {
+    role?: unknown;
+  };
+  privateMetadata?: {
+    role?: unknown;
+  };
+  two_factor_enabled?: unknown;
 }
