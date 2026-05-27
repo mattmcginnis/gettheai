@@ -1,0 +1,615 @@
+import { addDays } from "date-fns";
+import { Prisma } from "@prisma/client";
+import { appraiseDomain, getTld, isValidDomain, normalizeDomain } from "@/lib/appraisal";
+import { COMMISSION_RATE } from "@/lib/constants";
+import { createEscrowHandoff } from "@/lib/escrow";
+import { parsePortfolioCsv } from "@/lib/imports";
+import { getPrisma, isDatabaseConfigured } from "@/lib/prisma";
+import { adminQueue, listings as seedListings } from "@/lib/seed";
+import { filterAndSortListings, getListing as getSeedListing } from "@/lib/search";
+import { calculateCommission, canPlaceOffer } from "@/lib/transactions";
+import type {
+  AdminQueueItem,
+  Appraisal,
+  DomainFilters,
+  DomainListing,
+  ListingType,
+  Offer,
+  Transaction,
+  TransactionStatus,
+  VerificationTier
+} from "@/lib/types";
+
+const domainListingInclude = {
+  seller: {
+    include: {
+      sellerProfile: true
+    }
+  },
+  appraisal: true
+} satisfies Prisma.DomainListingInclude;
+
+const offerIncludeConfig = {
+  buyer: true,
+  listing: {
+    include: domainListingInclude
+  }
+} satisfies Prisma.OfferInclude;
+
+const transactionIncludeConfig = {
+  buyer: true,
+  listing: {
+    include: domainListingInclude
+  },
+  offer: true
+} satisfies Prisma.TransactionInclude;
+
+type PrismaListing = Prisma.DomainListingGetPayload<{ include: typeof domainListingInclude }>;
+type PrismaOffer = Prisma.OfferGetPayload<{ include: typeof offerIncludeConfig }>;
+type PrismaTransaction = Prisma.TransactionGetPayload<{ include: typeof transactionIncludeConfig }>;
+
+export async function listMarketplaceListings(filters: DomainFilters = {}) {
+  if (!isDatabaseConfigured()) {
+    return filterAndSortListings(seedListings, filters);
+  }
+
+  const prisma = getPrisma();
+  const rows = await prisma.domainListing.findMany({
+    include: listingInclude(),
+    orderBy: { createdAt: "desc" }
+  });
+
+  return filterAndSortListings(rows.map(mapListing), filters);
+}
+
+export async function getMarketplaceListing(identifier: string) {
+  if (!isDatabaseConfigured()) {
+    return getSeedListing(identifier) ?? seedListings.find((listing) => listing.id === identifier) ?? null;
+  }
+
+  const row = await getPrismaListingByIdOrDomain(identifier);
+  return row ? mapListing(row) : null;
+}
+
+export async function getFeaturedListings(limit = 3) {
+  const active = await listMarketplaceListings({ sort: "featured" });
+  return active.slice(0, limit);
+}
+
+export async function createListingDraft(input: {
+  domain: string;
+  price: number;
+  minimumOffer?: number;
+  registrar?: string;
+  category: string;
+  sellerEmail?: string;
+}) {
+  const domain = normalizeDomain(input.domain);
+  if (!isValidDomain(domain)) {
+    throw new Error("Invalid domain.");
+  }
+
+  const appraisal = appraiseDomain(domain);
+  const ownershipVerification = {
+    method: "dns_txt",
+    record: `_getthe-verify.${domain}`,
+    value: `getthe=${cryptoSafeId()}`
+  };
+
+  if (!isDatabaseConfigured()) {
+    return {
+      id: `draft_${Date.now()}`,
+      domain,
+      tld: getTld(domain),
+      status: "pending_verification",
+      price: input.price,
+      minimumOffer: input.minimumOffer ?? Math.round(input.price * 0.65),
+      registrar: input.registrar,
+      category: input.category,
+      ownershipVerification,
+      appraisal
+    };
+  }
+
+  const prisma = getPrisma();
+  const seller = await ensureUser(input.sellerEmail ?? "seller@getthe.com", "SELLER");
+  const row = await prisma.domainListing.create({
+    data: {
+      sellerId: seller.id,
+      domain,
+      tld: getTld(domain),
+      registrar: input.registrar,
+      status: "PENDING_VERIFICATION",
+      listingType: "BUY_NOW_AND_OFFER",
+      priceCents: dollarsToCents(input.price),
+      minimumOfferCents: dollarsToCents(input.minimumOffer ?? Math.round(input.price * 0.65)),
+      commissionBps: 700,
+      ownershipVerification,
+      description: appraisal.generatedSummary,
+      category: input.category,
+      trafficMonthly: 0,
+      domainAgeYears: 0,
+      seoTitle: `${domain} is for sale`,
+      seoDescription: `Buy ${domain} through GetThe with Escrow.com transaction handoff.`,
+      landingPageSlug: domain.replaceAll(".", "-"),
+      brandSignals: appraisal.keywordSignals as Prisma.InputJsonValue,
+      appraisal: {
+        create: mapAppraisalToCreate(appraisal)
+      }
+    },
+    include: listingInclude()
+  });
+
+  return mapListing(row as PrismaListing);
+}
+
+export async function createOfferRecord(input: {
+  listingId: string;
+  buyerEmail: string;
+  amount: number;
+  buyerVerificationTier: VerificationTier;
+}) {
+  const listing = await getMarketplaceListing(input.listingId);
+  if (!listing) {
+    throw new Error("Listing not found.");
+  }
+
+  if (input.amount < listing.minimumOffer) {
+    throw new Error(`Minimum offer is ${listing.minimumOffer}.`);
+  }
+
+  const verification = canPlaceOffer(input.amount, input.buyerVerificationTier);
+  if (!verification.allowed) {
+    const error = new Error(`Upgrade buyer verification to ${verification.required} before placing this offer.`);
+    Object.assign(error, { requiredVerificationTier: verification.required, statusCode: 403 });
+    throw error;
+  }
+
+  const offer: Offer = {
+    id: `offer_${Date.now()}`,
+    listingId: listing.id,
+    buyerEmail: input.buyerEmail,
+    amount: input.amount,
+    status: "pending",
+    buyerVerificationTier: input.buyerVerificationTier,
+    expiresAt: addDays(new Date(), 7).toISOString(),
+    negotiationHistory: [
+      {
+        actor: "buyer",
+        message: "Initial verified buyer offer.",
+        amount: input.amount,
+        at: new Date().toISOString()
+      },
+      {
+        actor: "ai_copilot",
+        message: "Seller can counter within their configured minimum and target range.",
+        at: new Date().toISOString()
+      }
+    ]
+  };
+
+  if (!isDatabaseConfigured()) {
+    return offer;
+  }
+
+  const prisma = getPrisma();
+  const buyer = await ensureUser(input.buyerEmail, "BUYER", input.buyerVerificationTier);
+  const row = await prisma.offer.create({
+    data: {
+      listingId: listing.id,
+      buyerId: buyer.id,
+      amountCents: dollarsToCents(input.amount),
+      status: "PENDING",
+      buyerVerificationTier: mapVerificationToPrisma(input.buyerVerificationTier),
+      expiresAt: new Date(offer.expiresAt),
+      negotiationHistory: offer.negotiationHistory
+    },
+    include: offerInclude()
+  });
+
+  return mapOffer(row);
+}
+
+export async function decideOffer(input: {
+  offerId: string;
+  action: "accept" | "reject" | "counter";
+  amount?: number;
+  note: string;
+}) {
+  if (!isDatabaseConfigured()) {
+    return {
+      offerId: input.offerId,
+      status: input.action === "accept" ? "accepted" : input.action === "reject" ? "rejected" : "countered",
+      note: input.note,
+      amount: input.amount,
+      transaction: input.action === "accept" ? await createTransactionRecord({ listingId: "dom-1", buyerEmail: "buyer@example.com", amount: input.amount }) : null
+    };
+  }
+
+  const prisma = getPrisma();
+  const existing = await getPrismaOfferById(input.offerId);
+  if (!existing) {
+    throw new Error("Offer not found.");
+  }
+
+  const history = Array.isArray(existing.negotiationHistory) ? existing.negotiationHistory : [];
+  const nextStatus = input.action === "accept" ? "ACCEPTED" : input.action === "reject" ? "REJECTED" : "COUNTERED";
+  const updated = await prisma.offer.update({
+    where: { id: input.offerId },
+    data: {
+      status: nextStatus,
+      amountCents: input.amount ? dollarsToCents(input.amount) : existing.amountCents,
+      negotiationHistory: [
+        ...history,
+        {
+          actor: "seller",
+          message: input.note,
+          amount: input.amount,
+          at: new Date().toISOString()
+        }
+      ]
+    },
+    include: offerInclude()
+  });
+
+  return {
+    offer: mapOffer(updated),
+    transaction:
+      input.action === "accept"
+        ? await createTransactionRecord({
+            listingId: updated.listingId,
+            buyerEmail: updated.buyer.email,
+            offerId: updated.id,
+            amount: centsToDollars(updated.amountCents)
+          })
+        : null
+  };
+}
+
+export async function createTransactionRecord(input: {
+  listingId: string;
+  buyerEmail: string;
+  offerId?: string;
+  amount?: number;
+}) {
+  const listing = await getMarketplaceListing(input.listingId);
+  if (!listing) {
+    throw new Error("Listing not found.");
+  }
+
+  const amount = input.amount ?? listing.price;
+  const commission = calculateCommission(amount);
+  const sellerEmail = `${listing.seller.slug}@seller.getthe.com`;
+  const handoff = await createEscrowHandoff({
+    listing,
+    buyerEmail: input.buyerEmail,
+    sellerEmail,
+    amount
+  });
+  const now = new Date().toISOString();
+  const transaction: Transaction = {
+    id: `txn_${Date.now()}`,
+    listingId: listing.id,
+    offerId: input.offerId,
+    buyerEmail: input.buyerEmail,
+    sellerId: listing.seller.id,
+    escrowProvider: "escrow.com",
+    escrowId: handoff.escrowId,
+    escrowUrl: handoff.escrowUrl,
+    amount,
+    commission,
+    status: "escrow_started",
+    statusTimeline: [
+      { status: "initiated", label: "GetThe created the transaction record.", at: now },
+      {
+        status: "escrow_started",
+        label: handoff.mode === "api" ? "Escrow.com API transaction created." : "Buyer is handed off to Escrow.com.",
+        at: now
+      }
+    ],
+    transferChecklist: [
+      { label: "Buyer funds Escrow.com transaction", done: false },
+      { label: "Seller unlocks domain and obtains transfer code", done: false },
+      { label: "Buyer confirms registrar transfer", done: false },
+      { label: "GetThe records transfer verification", done: false },
+      { label: "Escrow.com releases seller payout", done: false }
+    ]
+  };
+
+  if (!isDatabaseConfigured()) {
+    return transaction;
+  }
+
+  const prisma = getPrisma();
+  const buyer = await ensureUser(input.buyerEmail, "BUYER");
+  const row = await prisma.transaction.create({
+    data: {
+      listingId: listing.id,
+      offerId: input.offerId,
+      buyerId: buyer.id,
+      sellerId: listing.seller.id,
+      escrowProvider: "escrow.com",
+      escrowId: handoff.escrowId,
+      escrowUrl: handoff.escrowUrl,
+      amountCents: dollarsToCents(amount),
+      commissionCents: dollarsToCents(commission),
+      status: "ESCROW_STARTED",
+      statusTimeline: transaction.statusTimeline,
+      transferChecklist: transaction.transferChecklist,
+      payoutState: "pending"
+    },
+    include: transactionInclude()
+  });
+
+  return mapTransaction(row);
+}
+
+export async function processPortfolioImport(csv: string) {
+  const rows = parsePortfolioCsv(csv);
+  const accepted = rows.filter((row) => row.domain && isValidDomain(row.domain) && (row.price ?? 0) >= 500);
+  const needsReview = rows.filter((row) => !accepted.includes(row));
+
+  if (isDatabaseConfigured()) {
+    for (const row of accepted) {
+      await createListingDraft({
+        domain: row.domain,
+        price: row.price ?? 500,
+        minimumOffer: row.minimumOffer,
+        registrar: row.registrar,
+        category: row.category ?? "Imported"
+      });
+    }
+  }
+
+  return {
+    summary: {
+      total: rows.length,
+      accepted: accepted.length,
+      needsReview: needsReview.length
+    },
+    accepted: accepted.map((row) => ({
+      ...row,
+      status: "pending_verification",
+      ownershipVerification: "dns_txt"
+    })),
+    review: needsReview.map((row) => ({
+      ...row,
+      reason: !row.domain || !isValidDomain(row.domain) ? "invalid_domain" : "below_mid_tier_floor_or_missing_price"
+    }))
+  };
+}
+
+export async function getAdminOverview() {
+  const activeListings = await listMarketplaceListings();
+  const gmv = activeListings.reduce((sum, listing) => sum + listing.price, 0);
+  const commission = Math.round(gmv * COMMISSION_RATE);
+
+  return {
+    activeListings,
+    gmv,
+    commission,
+    queue: adminQueue
+  };
+}
+
+export async function recordAdminReview(input: {
+  actorEmail?: string;
+  queueItemId: string;
+  action: "approve" | "reject" | "request_evidence" | "escalate";
+  note: string;
+}) {
+  const review = {
+    ...input,
+    status: input.action === "approve" || input.action === "reject" ? "resolved" : "reviewing",
+    auditEvent: {
+      eventType: `admin.review.${input.action}`,
+      entityType: "admin_queue_item",
+      entityId: input.queueItemId,
+      metadata: { note: input.note }
+    }
+  };
+
+  if (isDatabaseConfigured()) {
+    const actor = input.actorEmail ? await ensureUser(input.actorEmail, "ADMIN") : null;
+    await getPrisma().auditEvent.create({
+      data: {
+        actorId: actor?.id,
+        ...review.auditEvent
+      }
+    });
+  }
+
+  return review;
+}
+
+function listingInclude() {
+  return domainListingInclude;
+}
+
+function offerInclude() {
+  return offerIncludeConfig;
+}
+
+function transactionInclude() {
+  return transactionIncludeConfig;
+}
+
+async function getPrismaListingByIdOrDomain(identifier: string) {
+  const prisma = getPrisma();
+  return prisma.domainListing.findFirst({
+    where: {
+      OR: [{ id: identifier }, { domain: normalizeDomain(identifier) }]
+    },
+    include: listingInclude()
+  });
+}
+
+async function getPrismaOfferById(offerId: string) {
+  return getPrisma().offer.findUnique({
+    where: { id: offerId },
+    include: offerInclude()
+  });
+}
+
+async function ensureUser(
+  email: string,
+  role: "BUYER" | "SELLER" | "ADMIN",
+  verificationTier: VerificationTier = role === "BUYER" ? "email" : "two_factor"
+) {
+  const prisma = getPrisma();
+  const user = await prisma.user.upsert({
+    where: { email: email.toLowerCase() },
+    update: {
+      role,
+      verificationTier: mapVerificationToPrisma(verificationTier),
+      twoFactorEnabled: verificationTier !== "email"
+    },
+    create: {
+      clerkUserId: `local:${email.toLowerCase()}`,
+      email: email.toLowerCase(),
+      displayName: email.split("@")[0],
+      role,
+      verificationTier: mapVerificationToPrisma(verificationTier),
+      twoFactorEnabled: verificationTier !== "email"
+    }
+  });
+
+  if (role === "SELLER") {
+    await prisma.sellerProfile.upsert({
+      where: { userId: user.id },
+      update: {},
+      create: {
+        userId: user.id,
+        publicName: user.displayName ?? "GetThe Seller",
+        slug: (user.displayName ?? "getthe-seller").toLowerCase().replace(/[^a-z0-9]+/g, "-")
+      }
+    });
+  }
+
+  return user;
+}
+
+function mapListing(row: NonNullable<PrismaListing>): DomainListing {
+  return {
+    id: row.id,
+    domain: row.domain,
+    tld: getTld(row.domain),
+    registrar: row.registrar ?? "Unknown",
+    seller: {
+      id: row.seller.id,
+      publicName: row.seller.sellerProfile?.publicName ?? row.seller.displayName ?? "Verified Seller",
+      slug: row.seller.sellerProfile?.slug ?? row.seller.id,
+      verified: row.seller.twoFactorEnabled,
+      transactionCount: 0,
+      avgResponseHours: 6
+    },
+    status: row.status.toLowerCase() as DomainListing["status"],
+    listingType: row.listingType.toLowerCase() as ListingType,
+    price: centsToDollars(row.priceCents),
+    minimumOffer: centsToDollars(row.minimumOfferCents ?? row.priceCents),
+    commissionRate: row.commissionBps / 10000,
+    ownershipVerified: row.status === "ACTIVE" || Boolean((row.ownershipVerification as { verifiedAt?: string })?.verifiedAt),
+    description: row.description,
+    category: row.category,
+    trafficMonthly: row.trafficMonthly,
+    domainAgeYears: row.domainAgeYears,
+    seoTitle: row.seoTitle,
+    seoDescription: row.seoDescription,
+    brandSignals: Array.isArray(row.brandSignals) ? (row.brandSignals as string[]) : [],
+    createdAt: row.createdAt.toISOString(),
+    appraisal: row.appraisal ? mapAppraisal(row.appraisal) : appraiseDomain(row.domain)
+  };
+}
+
+function mapAppraisal(row: {
+  domain: string;
+  lowEstimateCents: number;
+  highEstimateCents: number;
+  confidence: number;
+  comparableSales: unknown;
+  keywordSignals: unknown;
+  brandabilityNotes: string;
+  generatedSummary: string;
+  modelVersion: string;
+}): Appraisal {
+  return {
+    domain: row.domain,
+    lowEstimate: centsToDollars(row.lowEstimateCents),
+    highEstimate: centsToDollars(row.highEstimateCents),
+    confidence: row.confidence,
+    comparableSales: Array.isArray(row.comparableSales) ? (row.comparableSales as Appraisal["comparableSales"]) : [],
+    keywordSignals: Array.isArray(row.keywordSignals) ? (row.keywordSignals as string[]) : [],
+    brandabilityNotes: row.brandabilityNotes,
+    generatedSummary: row.generatedSummary,
+    modelVersion: row.modelVersion,
+    disclaimer: appraiseDomain(row.domain).disclaimer
+  };
+}
+
+function mapOffer(row: NonNullable<PrismaOffer>): Offer {
+  return {
+    id: row.id,
+    listingId: row.listingId,
+    buyerEmail: row.buyer.email,
+    amount: centsToDollars(row.amountCents),
+    status: row.status.toLowerCase() as Offer["status"],
+    buyerVerificationTier: mapVerificationFromPrisma(row.buyerVerificationTier),
+    expiresAt: row.expiresAt.toISOString(),
+    negotiationHistory: Array.isArray(row.negotiationHistory) ? (row.negotiationHistory as Offer["negotiationHistory"]) : []
+  };
+}
+
+function mapTransaction(row: NonNullable<PrismaTransaction>): Transaction {
+  return {
+    id: row.id,
+    listingId: row.listingId,
+    offerId: row.offerId ?? undefined,
+    buyerEmail: row.buyer.email,
+    sellerId: row.sellerId,
+    escrowProvider: "escrow.com",
+    escrowId: row.escrowId ?? row.id,
+    escrowUrl: row.escrowUrl ?? `https://www.escrow.com/transaction/${row.escrowId}`,
+    amount: centsToDollars(row.amountCents),
+    commission: centsToDollars(row.commissionCents),
+    status: row.status.toLowerCase() as TransactionStatus,
+    statusTimeline: Array.isArray(row.statusTimeline) ? (row.statusTimeline as Transaction["statusTimeline"]) : [],
+    transferChecklist: Array.isArray(row.transferChecklist) ? (row.transferChecklist as Transaction["transferChecklist"]) : []
+  };
+}
+
+function mapAppraisalToCreate(appraisal: Appraisal) {
+  return {
+    domain: appraisal.domain,
+    lowEstimateCents: dollarsToCents(appraisal.lowEstimate),
+    highEstimateCents: dollarsToCents(appraisal.highEstimate),
+    confidence: appraisal.confidence,
+    comparableSales: appraisal.comparableSales as unknown as Prisma.InputJsonValue,
+    keywordSignals: appraisal.keywordSignals as Prisma.InputJsonValue,
+    brandabilityNotes: appraisal.brandabilityNotes,
+    generatedSummary: appraisal.generatedSummary,
+    modelVersion: appraisal.modelVersion,
+    disclaimerAccepted: false
+  };
+}
+
+function mapVerificationToPrisma(tier: VerificationTier) {
+  return tier.toUpperCase() as "EMAIL" | "TWO_FACTOR" | "ESCROW_INTENT" | "KYC_REVIEW";
+}
+
+function mapVerificationFromPrisma(tier: string): VerificationTier {
+  return tier.toLowerCase() as VerificationTier;
+}
+
+function dollarsToCents(value: number) {
+  return Math.round(value * 100);
+}
+
+function centsToDollars(value: number) {
+  return Math.round(value) / 100;
+}
+
+function cryptoSafeId() {
+  return globalThis.crypto?.randomUUID?.() ?? `id_${Date.now()}`;
+}
+
+export type { AdminQueueItem };

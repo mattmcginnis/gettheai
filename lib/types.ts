@@ -1,0 +1,146 @@
+export type Tld = "com" | "org" | "ai" | "io" | "net";
+
+export type VerificationTier = "email" | "two_factor" | "escrow_intent" | "kyc_review";
+
+export type ListingStatus =
+  | "draft"
+  | "pending_verification"
+  | "active"
+  | "flagged"
+  | "sold"
+  | "archived";
+
+export type ListingType = "buy_now" | "make_offer" | "buy_now_and_offer";
+
+export type OfferStatus =
+  | "pending"
+  | "countered"
+  | "accepted"
+  | "rejected"
+  | "expired"
+  | "canceled";
+
+export type TransactionStatus =
+  | "initiated"
+  | "escrow_started"
+  | "buyer_funded"
+  | "domain_transfer_started"
+  | "transfer_verified"
+  | "payout_complete"
+  | "closed"
+  | "canceled"
+  | "disputed";
+
+export interface SellerProfile {
+  id: string;
+  publicName: string;
+  slug: string;
+  verified: boolean;
+  transactionCount: number;
+  avgResponseHours: number;
+}
+
+export interface ComparableSale {
+  domain: string;
+  price: number;
+  date: string;
+  venue: string;
+  tld: Tld;
+}
+
+export interface Appraisal {
+  domain: string;
+  lowEstimate: number;
+  highEstimate: number;
+  confidence: number;
+  comparableSales: ComparableSale[];
+  keywordSignals: string[];
+  brandabilityNotes: string;
+  generatedSummary: string;
+  modelVersion: string;
+  disclaimer: string;
+}
+
+export interface DomainListing {
+  id: string;
+  domain: string;
+  tld: Tld;
+  registrar: string;
+  seller: SellerProfile;
+  status: ListingStatus;
+  listingType: ListingType;
+  price: number;
+  minimumOffer: number;
+  commissionRate: number;
+  ownershipVerified: boolean;
+  description: string;
+  category: string;
+  trafficMonthly: number;
+  domainAgeYears: number;
+  seoTitle: string;
+  seoDescription: string;
+  brandSignals: string[];
+  createdAt: string;
+  appraisal: Appraisal;
+}
+
+export interface DomainFilters {
+  q?: string;
+  tld?: string;
+  minPrice?: number;
+  maxPrice?: number;
+  category?: string;
+  maxLength?: number;
+  minTraffic?: number;
+  minConfidence?: number;
+  listingType?: ListingType | "any";
+  sort?: "featured" | "price_asc" | "price_desc" | "newest" | "confidence";
+}
+
+export interface Offer {
+  id: string;
+  listingId: string;
+  buyerEmail: string;
+  amount: number;
+  status: OfferStatus;
+  buyerVerificationTier: VerificationTier;
+  expiresAt: string;
+  negotiationHistory: Array<{
+    actor: "buyer" | "seller" | "ai_copilot" | "admin";
+    message: string;
+    amount?: number;
+    at: string;
+  }>;
+}
+
+export interface Transaction {
+  id: string;
+  listingId: string;
+  offerId?: string;
+  buyerEmail: string;
+  sellerId: string;
+  escrowProvider: "escrow.com";
+  escrowId: string;
+  escrowUrl: string;
+  amount: number;
+  commission: number;
+  status: TransactionStatus;
+  statusTimeline: Array<{
+    status: TransactionStatus;
+    label: string;
+    at: string;
+  }>;
+  transferChecklist: Array<{
+    label: string;
+    done: boolean;
+  }>;
+}
+
+export interface AdminQueueItem {
+  id: string;
+  type: "trademark" | "fraud" | "ownership" | "escrow" | "ai_approval";
+  title: string;
+  severity: "low" | "medium" | "high";
+  status: "open" | "reviewing" | "resolved";
+  createdAt: string;
+}
