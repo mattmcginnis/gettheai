@@ -46,6 +46,7 @@ export default async function BuyerPage() {
           </div>
           <div className="flex flex-wrap gap-3">
             <ButtonLink href="/buyer/watchlist">Manage alerts</ButtonLink>
+            <ButtonLink href="/transactions/dashboard" variant="secondary">Transactions</ButtonLink>
             <ButtonLink href="/domains">Search inventory</ButtonLink>
           </div>
         </div>

@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
-import { AlertTriangle, CheckCircle2, ClipboardCheck, XCircle } from "lucide-react";
+import Link from "next/link";
+import { AlertTriangle, CheckCircle2, ClipboardCheck, Download, XCircle } from "lucide-react";
 import { requirePageRole } from "@/lib/page-auth";
 import { betaChecklist, getLaunchGates } from "@/lib/beta-checklist";
 
@@ -10,6 +11,8 @@ export const metadata: Metadata = {
 export default async function AdminBetaChecklistPage() {
   await requirePageRole(["admin"], "/admin/beta-checklist");
   const gates = getLaunchGates();
+  const failedGates = gates.filter((gate) => gate.status === "fail");
+  const warningGates = gates.filter((gate) => gate.status === "warn");
 
   return (
     <main>
@@ -26,9 +29,26 @@ export default async function AdminBetaChecklistPage() {
       <section className="py-8">
         <div className="shell grid gap-6">
           <div className="rounded-md border border-line bg-white p-5 shadow-panel">
-            <div className="flex items-center gap-2">
-              <ClipboardCheck className="text-coral" size={20} aria-hidden="true" />
-              <h2 className="text-2xl font-bold">Launch gates</h2>
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="flex items-center gap-2">
+                <ClipboardCheck className="text-coral" size={20} aria-hidden="true" />
+                <h2 className="text-2xl font-bold">Launch gates</h2>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <Link className="focus-ring inline-flex h-10 items-center gap-2 rounded-md border border-line px-3 text-sm font-semibold hover:border-mint hover:text-mint" href="/admin/launch-readiness">
+                  <Download size={15} aria-hidden="true" />
+                  JSON
+                </Link>
+                <Link className="focus-ring inline-flex h-10 items-center gap-2 rounded-md border border-line px-3 text-sm font-semibold hover:border-mint hover:text-mint" href="/admin/launch-readiness?format=csv">
+                  <Download size={15} aria-hidden="true" />
+                  CSV
+                </Link>
+              </div>
+            </div>
+            <div className="mt-4 grid gap-3 md:grid-cols-3">
+              <ReadinessSummary label="Pass" value={gates.length - failedGates.length - warningGates.length} tone="mint" />
+              <ReadinessSummary label="Warn" value={warningGates.length} tone="gold" />
+              <ReadinessSummary label="Fail" value={failedGates.length} tone="coral" />
             </div>
             <div className="mt-5 grid gap-3 lg:grid-cols-2">
               {gates.map((gate) => (
@@ -42,6 +62,26 @@ export default async function AdminBetaChecklistPage() {
               ))}
             </div>
           </div>
+
+          {failedGates.length || warningGates.length ? (
+            <div className="rounded-md border border-line bg-white p-5 shadow-panel">
+              <div className="flex items-center gap-2">
+                <AlertTriangle className="text-gold" size={20} aria-hidden="true" />
+                <h2 className="text-2xl font-bold">Open readiness work</h2>
+              </div>
+              <div className="mt-5 grid gap-3">
+                {[...failedGates, ...warningGates].map((gate) => (
+                  <div key={gate.id} className="rounded-md border border-line p-3 text-sm text-ink/72">
+                    <div className="flex items-center gap-2 font-semibold">
+                      <GateIcon status={gate.status} />
+                      {gate.label}
+                    </div>
+                    <p className="mt-2 text-xs leading-5 text-ink/55">{gate.detail}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : null}
 
           <div className="grid gap-6 lg:grid-cols-2">
             {betaChecklist.map((group) => (
@@ -64,6 +104,16 @@ export default async function AdminBetaChecklistPage() {
         </div>
       </section>
     </main>
+  );
+}
+
+function ReadinessSummary({ label, value, tone }: { label: string; value: number; tone: "mint" | "gold" | "coral" }) {
+  const toneClass = tone === "mint" ? "text-mint" : tone === "gold" ? "text-gold" : "text-coral";
+  return (
+    <div className="rounded-md border border-line bg-paper p-3">
+      <p className="text-xs font-bold uppercase text-ink/48">{label}</p>
+      <p className={`mt-1 text-2xl font-bold ${toneClass}`}>{value}</p>
+    </div>
   );
 }
 

@@ -1,16 +1,20 @@
 import { NextRequest, NextResponse } from "next/server";
-import { hasRole } from "@/lib/auth";
+import { getRequestAuthContext } from "@/lib/auth";
 import { processPortfolioImport } from "@/lib/repository";
 import { storeObject } from "@/lib/storage";
 
 export async function POST(request: NextRequest) {
-  if (!(await hasRole(request, ["seller", "admin"]))) {
+  const session = await getRequestAuthContext(request);
+  if (!session || (session.role !== "seller" && session.role !== "admin") || !session.twoFactorEnabled) {
     return NextResponse.json({ error: "Seller or admin role required." }, { status: 403 });
   }
 
   try {
     const csv = await request.text();
-    const result = await processPortfolioImport(csv);
+    const result = await processPortfolioImport(csv, {
+      sellerEmail: session.email,
+      actorEmail: session.email
+    });
     const stored = await storeObject({
       key: `imports/${Date.now()}-portfolio.csv`,
       bytes: new TextEncoder().encode(csv),

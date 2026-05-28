@@ -11,7 +11,12 @@ export function DomainCard({ listing }: { listing: DomainListing }) {
           <Link href={`/domains/${listing.domain}`} className="focus-ring rounded-md text-2xl font-bold hover:text-mint">
             {listing.domain}
           </Link>
-          <p className="mt-2 text-sm text-ink/62">{listing.category}</p>
+          <p className="mt-2 text-sm text-ink/62">
+            {listing.category} by{" "}
+            <Link className="font-semibold hover:text-mint" href={`/sellers/${listing.seller.slug}`}>
+              {listing.seller.publicName}
+            </Link>
+          </p>
         </div>
         <span className="rounded-md bg-mint/10 px-3 py-1 text-sm font-semibold text-mint">
           {formatMoney(listing.price)}

@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import Link from "next/link";
 import { notFound } from "next/navigation";
 import { BadgeCheck, Clock, ExternalLink, ShieldCheck, Sparkles } from "lucide-react";
 import { OfferPanel } from "@/components/offer-panel";
@@ -61,6 +62,14 @@ export default async function DomainDetailPage({
             </div>
             <h1 className="mt-4 text-balance text-5xl font-bold">{listing.domain}</h1>
             <p className="mt-4 max-w-3xl text-lg leading-8 text-ink/68">{listing.description}</p>
+            <div className="mt-4 flex flex-wrap gap-3 text-sm font-semibold">
+              <Link className="focus-ring rounded-md text-mint hover:text-ink" href={`/sellers/${listing.seller.slug}`}>
+                {listing.seller.publicName}
+              </Link>
+              <Link className="focus-ring rounded-md text-ink/62 hover:text-mint" href={`/park/${listing.domain}`}>
+                Parked landing page
+              </Link>
+            </div>
             <div className="mt-6 grid gap-3 sm:grid-cols-4">
               <DetailStat icon={<BadgeCheck size={17} />} label="Ownership" value={listing.ownershipVerified ? "Verified" : "Pending"} />
               <DetailStat icon={<Sparkles size={17} />} label="AI confidence" value={`${listing.appraisal.confidence}%`} />

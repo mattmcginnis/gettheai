@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { hasRole } from "@/lib/auth";
+import { getRequestAuthContext } from "@/lib/auth";
 import { createListingDraft } from "@/lib/repository";
 
 const schema = z.object({
@@ -13,13 +13,17 @@ const schema = z.object({
 });
 
 export async function POST(request: NextRequest) {
-  if (!(await hasRole(request, ["seller", "admin"]))) {
+  const session = await getRequestAuthContext(request);
+  if (!session || (session.role !== "seller" && session.role !== "admin") || !session.twoFactorEnabled) {
     return NextResponse.json({ error: "Seller role and 2FA are required before creating listings." }, { status: 403 });
   }
 
   try {
     const body = schema.parse(await request.json());
-    const listing = await createListingDraft(body);
+    const listing = await createListingDraft({
+      ...body,
+      sellerEmail: session.email
+    });
 
     return NextResponse.json(
       { listing },

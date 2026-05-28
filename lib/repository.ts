@@ -31,10 +31,14 @@ import type {
   Offer,
   OfferInboxItem,
   OperationalAnalytics,
+  ParkedInquiry,
   SearchAlertItem,
   SellerInventoryItem,
+  SellerProfile,
+  SellerProfilePage,
   SupportCaseItem,
   Transaction,
+  TransactionDashboardItem,
   TransactionStatus,
   VerificationTier,
   WatchlistItem
@@ -69,6 +73,7 @@ type PrismaListing = Prisma.DomainListingGetPayload<{ include: typeof domainList
 type PrismaOffer = Prisma.OfferGetPayload<{ include: typeof offerIncludeConfig }>;
 type PrismaTransaction = Prisma.TransactionGetPayload<{ include: typeof transactionIncludeConfig }>;
 type LocalDraftListing = DomainListing & {
+  sellerEmail?: string;
   ownershipVerification?: {
     method: "dns_txt" | "nameserver" | "registrar" | "manual";
     record: string;
@@ -76,6 +81,13 @@ type LocalDraftListing = DomainListing & {
     verifiedAt?: string;
     verifiedBy?: string;
   };
+};
+type LocalTransactionRecord = {
+  transaction: Transaction;
+  listing: DomainListing;
+  sellerEmail: string;
+  createdAt: string;
+  updatedAt: string;
 };
 export interface AdminEntityDetail {
   entity: string;
@@ -113,6 +125,14 @@ const localListingDetailOverrides = ((globalThis as typeof globalThis & {
 const localOffers = ((globalThis as typeof globalThis & {
   __gettheLocalOffers?: OfferInboxItem[];
 }).__gettheLocalOffers ??= []);
+
+const localTransactions = ((globalThis as typeof globalThis & {
+  __gettheLocalTransactions?: LocalTransactionRecord[];
+}).__gettheLocalTransactions ??= []);
+
+const localParkedInquiries = ((globalThis as typeof globalThis & {
+  __gettheLocalParkedInquiries?: ParkedInquiry[];
+}).__gettheLocalParkedInquiries ??= []);
 
 const localWatchlistItems = ((globalThis as typeof globalThis & {
   __gettheLocalWatchlistItems?: WatchlistItem[];
@@ -319,6 +339,7 @@ export async function createListingDraft(input: {
   };
 
   if (!isDatabaseConfigured()) {
+    const localSeller = localSellerForEmail(input.sellerEmail);
     const draft: LocalDraftListing = {
       id: `draft_${Date.now()}`,
       domain,
@@ -327,14 +348,8 @@ export async function createListingDraft(input: {
       price: input.price,
       minimumOffer: input.minimumOffer ?? Math.round(input.price * 0.65),
       registrar: input.registrar ?? "Unknown",
-      seller: {
-        id: "seller-local",
-        publicName: "GetThe Seller",
-        slug: "getthe-seller",
-        verified: true,
-        transactionCount: 0,
-        avgResponseHours: 6
-      },
+      seller: localSeller.profile,
+      sellerEmail: localSeller.email,
       listingType: "buy_now_and_offer",
       commissionRate: COMMISSION_RATE,
       ownershipVerified: false,
@@ -525,7 +540,7 @@ export async function listSellerInventory(input: {
   role?: "seller" | "admin" | "buyer";
 }): Promise<SellerInventoryItem[]> {
   if (!isDatabaseConfigured()) {
-    return getLocalListings().map((listing) => ({
+    return getLocalListingsForSeller(input).map((listing) => ({
       id: listing.id,
       domain: listing.domain,
       status: listing.status,
@@ -573,7 +588,7 @@ export async function listSellerListings(input: {
   role?: "seller" | "admin" | "buyer";
 }): Promise<DomainListing[]> {
   if (!isDatabaseConfigured()) {
-    return getLocalListings();
+    return getLocalListingsForSeller(input);
   }
 
   const rows = await getPrisma().domainListing.findMany({
@@ -1102,7 +1117,7 @@ export async function createTransactionRecord(input: {
 
   const amount = input.amount ?? listing.price;
   const commission = calculateCommission(amount);
-  const sellerEmail = `${listing.seller.slug}@seller.getthe.com`;
+  const sellerEmail = await getSellerEmailForListing(listing);
   let handoff: EscrowHandoff | null = null;
   let handoffError: Error | null = null;
   try {
@@ -1179,6 +1194,13 @@ export async function createTransactionRecord(input: {
   };
 
   if (!isDatabaseConfigured()) {
+    localTransactions.unshift({
+      transaction,
+      listing,
+      sellerEmail,
+      createdAt: now,
+      updatedAt: now
+    });
     return transaction;
   }
 
@@ -1438,39 +1460,269 @@ export async function getTransactionDetail(identifier: string) {
   };
 }
 
-export async function processPortfolioImport(csv: string) {
+export async function processPortfolioImport(csv: string, options: { sellerEmail?: string; actorEmail?: string } = {}) {
   const rows = parsePortfolioCsv(csv);
-  const accepted = rows.filter((row) => row.domain && isValidDomain(row.domain) && (row.price ?? 0) >= 500);
-  const needsReview = rows.filter((row) => !accepted.includes(row));
+  const sellerEmail = (options.sellerEmail ?? "seller@getthe.com").toLowerCase();
+  const acceptedCandidates = rows
+    .map((row, index) => ({ row, index }))
+    .filter(({ row }) => row.domain && isValidDomain(row.domain) && (row.price ?? 0) >= 500);
+  const needsReview = rows
+    .map((row, index) => ({ row, index }))
+    .filter(({ index }) => !acceptedCandidates.some((candidate) => candidate.index === index))
+    .map(({ row }) => ({
+      ...row,
+      reason: !row.domain || !isValidDomain(row.domain) ? "invalid_domain" : "below_mid_tier_floor_or_missing_price"
+    }));
+  const createdByIndex = new Map<number, DomainListing>();
+  const creationFailures: Array<Record<string, unknown>> = [];
 
-  if (isDatabaseConfigured()) {
-    for (const row of accepted) {
-      await createListingDraft({
+  for (const { row, index } of acceptedCandidates) {
+    try {
+      const listing = await createListingDraft({
         domain: row.domain,
         price: row.price ?? 500,
         minimumOffer: row.minimumOffer,
         registrar: row.registrar,
-        category: row.category ?? "Imported"
+        category: row.category ?? "Imported",
+        sellerEmail
+      });
+      createdByIndex.set(index, listing);
+    } catch (error) {
+      creationFailures.push({
+        ...row,
+        reason: error instanceof Error && /unique|duplicate/i.test(error.message) ? "duplicate_domain" : "create_failed",
+        detail: error instanceof Error ? error.message : "Listing creation failed."
       });
     }
   }
+
+  if (isDatabaseConfigured()) {
+    const seller = await ensureUser(sellerEmail, "SELLER");
+    const prisma = getPrisma();
+    await prisma.sellerProfile.update({
+      where: { userId: seller.id },
+      data: {
+        importedPortfolioMeta: {
+          lastImportedAt: new Date().toISOString(),
+          source: "csv",
+          totalRows: rows.length,
+          accepted: createdByIndex.size,
+          needsReview: needsReview.length + creationFailures.length
+        }
+      }
+    });
+    await prisma.auditEvent.create({
+      data: {
+        actorId: seller.id,
+        eventType: "portfolio.import.processed",
+        entityType: "seller_profile",
+        entityId: seller.id,
+        metadata: {
+          sellerEmail,
+          totalRows: rows.length,
+          accepted: createdByIndex.size,
+          needsReview: needsReview.length + creationFailures.length,
+          actorEmail: options.actorEmail ?? sellerEmail
+        }
+      }
+    });
+  }
+
+  const accepted = acceptedCandidates
+    .filter(({ index }) => createdByIndex.has(index))
+    .map(({ row, index }) => ({
+      ...row,
+      listingId: createdByIndex.get(index)?.id,
+      sellerEmail,
+      status: "pending_verification",
+      ownershipVerification: "dns_txt"
+    }));
 
   return {
     summary: {
       total: rows.length,
       accepted: accepted.length,
-      needsReview: needsReview.length
+      needsReview: needsReview.length + creationFailures.length
     },
-    accepted: accepted.map((row) => ({
-      ...row,
-      status: "pending_verification",
-      ownershipVerification: "dns_txt"
-    })),
-    review: needsReview.map((row) => ({
-      ...row,
-      reason: !row.domain || !isValidDomain(row.domain) ? "invalid_domain" : "below_mid_tier_floor_or_missing_price"
-    }))
+    accepted,
+    review: [...needsReview, ...creationFailures]
   };
+}
+
+export async function getSellerProfilePage(slug: string): Promise<SellerProfilePage | null> {
+  const normalizedSlug = slug.toLowerCase();
+
+  if (!isDatabaseConfigured()) {
+    const listings = getLocalListings()
+      .filter((listing) => listing.seller.slug === normalizedSlug)
+      .filter((listing) => listing.status !== "archived" && listing.status !== "sold");
+    const seller = listings[0]?.seller;
+
+    return seller ? buildSellerProfilePage(seller, listings) : null;
+  }
+
+  const prisma = getPrisma();
+  const profile = await prisma.sellerProfile.findUnique({
+    where: { slug: normalizedSlug },
+    include: { user: true }
+  });
+
+  if (!profile) {
+    return null;
+  }
+
+  const [rows, completedTransactions] = await Promise.all([
+    prisma.domainListing.findMany({
+      where: {
+        sellerId: profile.userId,
+        status: {
+          notIn: [PrismaListingStatus.ARCHIVED, PrismaListingStatus.SOLD]
+        }
+      },
+      include: listingInclude(),
+      orderBy: { updatedAt: "desc" },
+      take: 48
+    }),
+    prisma.transaction.count({
+      where: {
+        sellerId: profile.userId,
+        status: {
+          in: [PrismaTransactionStatus.PAYOUT_COMPLETE, PrismaTransactionStatus.CLOSED]
+        }
+      }
+    })
+  ]);
+
+  return buildSellerProfilePage(
+    {
+      id: profile.id,
+      publicName: profile.publicName,
+      slug: profile.slug,
+      verified: profile.user.twoFactorEnabled,
+      transactionCount: completedTransactions,
+      avgResponseHours: 6
+    },
+    rows.map(mapListing)
+  );
+}
+
+export async function createParkedInquiry(input: {
+  listingId: string;
+  name: string;
+  email: string;
+  message: string;
+  budget?: number;
+}): Promise<ParkedInquiry> {
+  const listing = await getMarketplaceListing(input.listingId);
+  if (!listing) {
+    throw new Error("Listing not found.");
+  }
+
+  const now = new Date().toISOString();
+  const sellerEmail = await getSellerEmailForListing(listing);
+  const inquiry: ParkedInquiry = {
+    id: `inq_${Date.now()}`,
+    listingId: listing.id,
+    domain: listing.domain,
+    sellerEmail,
+    name: input.name.trim(),
+    email: input.email.toLowerCase(),
+    message: input.message.trim(),
+    budget: input.budget,
+    createdAt: now
+  };
+
+  if (!isDatabaseConfigured()) {
+    localParkedInquiries.unshift(inquiry);
+    return inquiry;
+  }
+
+  await getPrisma().auditEvent.create({
+    data: {
+      eventType: "parking.inquiry.created",
+      entityType: "domain_listing",
+      entityId: listing.id,
+      metadata: inquiry as unknown as Prisma.InputJsonValue
+    }
+  });
+
+  return inquiry;
+}
+
+export async function listTransactionDashboard(input: {
+  email: string;
+  role: "buyer" | "seller" | "admin";
+  party?: "all" | "buyer" | "seller";
+  status?: TransactionStatus | "all";
+  q?: string;
+}): Promise<TransactionDashboardItem[]> {
+  const party = input.party ?? "all";
+  const status = input.status && input.status !== "all" ? input.status : undefined;
+  const q = input.q?.trim().toLowerCase();
+
+  if (!isDatabaseConfigured()) {
+    const email = input.email.toLowerCase();
+    return localTransactions
+      .filter((record) => {
+        if (input.role === "buyer" && record.transaction.buyerEmail.toLowerCase() !== email) return false;
+        if (
+          input.role === "seller" &&
+          !isLocalDefaultSellerEmail(email) &&
+          record.sellerEmail.toLowerCase() !== email
+        ) {
+          return false;
+        }
+        if (status && record.transaction.status !== status) return false;
+        if (!q) return true;
+        return [
+          record.listing.domain,
+          record.transaction.buyerEmail,
+          record.sellerEmail,
+          record.transaction.escrowId ?? ""
+        ].some((value) => value.toLowerCase().includes(q));
+      })
+      .filter((record) => {
+        if (input.role !== "admin" || party === "all" || !q) return true;
+        return party === "buyer"
+          ? record.transaction.buyerEmail.toLowerCase().includes(q)
+          : record.sellerEmail.toLowerCase().includes(q);
+      })
+      .map((record) => mapLocalTransactionDashboardItem(record));
+  }
+
+  const where: Prisma.TransactionWhereInput = {};
+  if (status) {
+    where.status = mapTransactionStatusToPrisma(status);
+  }
+
+  if (input.role === "buyer") {
+    where.buyer = { email: input.email.toLowerCase() };
+  } else if (input.role === "seller") {
+    where.listing = { seller: { email: input.email.toLowerCase() } };
+  }
+
+  if (q) {
+    const qFilters =
+      input.role === "admin" && party === "buyer"
+        ? [{ buyer: { email: { contains: q, mode: "insensitive" as const } } }]
+        : input.role === "admin" && party === "seller"
+          ? [{ listing: { seller: { email: { contains: q, mode: "insensitive" as const } } } }]
+          : [
+              { listing: { domain: { contains: q, mode: "insensitive" as const } } },
+              { buyer: { email: { contains: q, mode: "insensitive" as const } } },
+              { escrowId: { contains: q, mode: "insensitive" as const } }
+            ];
+    where.AND = [{ OR: qFilters }];
+  }
+
+  const rows = await getPrisma().transaction.findMany({
+    where,
+    include: transactionInclude(),
+    orderBy: { updatedAt: "desc" },
+    take: 50
+  });
+
+  return rows.map(mapTransactionDashboardItem);
 }
 
 export async function createWatchlistItem(input: {
@@ -2018,7 +2270,11 @@ export async function listModerationQueue(): Promise<AdminQueueItem[]> {
 }
 
 export async function recordAnalyticsEvent(input: {
-  eventType: "analytics.appraisal.completed" | "analytics.search.performed" | "analytics.listing.viewed";
+  eventType:
+    | "analytics.appraisal.completed"
+    | "analytics.search.performed"
+    | "analytics.listing.viewed"
+    | "analytics.parking.viewed";
   entityType: string;
   entityId: string;
   metadata?: Record<string, unknown>;
@@ -2873,8 +3129,30 @@ export async function updateTransactionOperations(input: {
   note?: string;
 }) {
   if (!isDatabaseConfigured()) {
+    const record = localTransactions.find(
+      (item) => item.transaction.id === input.transactionId || item.transaction.escrowId === input.transactionId
+    );
+    if (record) {
+      if (input.status) {
+        record.transaction.status = input.status;
+        record.transaction.statusTimeline.push({
+          status: input.status,
+          label: input.note ?? `Admin updated transaction ${input.status}.`,
+          at: new Date().toISOString()
+        });
+      }
+      if (input.checklistUpdates?.length) {
+        record.transaction.transferChecklist = record.transaction.transferChecklist.map((item, index) => {
+          const update = input.checklistUpdates?.find((candidate) => candidate.index === index);
+          return update ? { ...item, done: update.done } : item;
+        });
+      }
+      record.updatedAt = new Date().toISOString();
+    }
+
     return {
       action: "transaction_operations",
+      transaction: record?.transaction,
       transactionId: input.transactionId,
       status: input.status,
       checklistUpdates: input.checklistUpdates ?? [],
@@ -2987,6 +3265,16 @@ function getLocalListings() {
   );
 }
 
+function getLocalListingsForSeller(input: { email: string; role?: "seller" | "admin" | "buyer" }) {
+  const listings = getLocalListings();
+  if (input.role === "admin" || isLocalDefaultSellerEmail(input.email)) {
+    return listings;
+  }
+
+  const email = input.email.toLowerCase();
+  return listings.filter((listing) => localSellerEmail(listing).toLowerCase() === email);
+}
+
 function applyLocalListingOverride(listing: DomainListing | null | undefined) {
   if (!listing) {
     return null;
@@ -3002,6 +3290,11 @@ function applyLocalListingOverride(listing: DomainListing | null | undefined) {
 }
 
 function localSellerEmail(listing: DomainListing) {
+  const draftEmail = (listing as LocalDraftListing).sellerEmail;
+  if (draftEmail) {
+    return draftEmail;
+  }
+
   const sellerEmails: Record<string, string> = {
     "seller-1": "northstar@getthe.com",
     "seller-2": "civic@getthe.com",
@@ -3010,6 +3303,65 @@ function localSellerEmail(listing: DomainListing) {
   };
 
   return sellerEmails[listing.seller.id] ?? `${listing.seller.slug}@seller.getthe.com`;
+}
+
+async function getSellerEmailForListing(listing: DomainListing) {
+  if (!isDatabaseConfigured()) {
+    return localSellerEmail(listing);
+  }
+
+  const row = await getPrismaListingByIdOrDomain(listing.id);
+  return row?.seller.email ?? `${listing.seller.slug}@seller.getthe.com`;
+}
+
+function localSellerForEmail(email?: string): { email: string; profile: SellerProfile } {
+  const normalized = (email ?? "seller@getthe.com").toLowerCase();
+  if (isLocalDefaultSellerEmail(normalized)) {
+    return {
+      email: "seller@getthe.com",
+      profile: {
+        id: "seller-local",
+        publicName: "GetThe Seller",
+        slug: "getthe-seller",
+        verified: true,
+        transactionCount: 0,
+        avgResponseHours: 6
+      }
+    };
+  }
+
+  const localPart = normalized.split("@")[0] ?? "seller";
+  const slug = slugify(localPart || "seller");
+  const publicName = titleize(localPart);
+
+  return {
+    email: normalized,
+    profile: {
+      id: `seller-${slug}`,
+      publicName,
+      slug,
+      verified: true,
+      transactionCount: 0,
+      avgResponseHours: 6
+    }
+  };
+}
+
+function isLocalDefaultSellerEmail(email: string) {
+  return ["seller@getthe.com", "seller@getthe.local", "seller@example.com"].includes(email.toLowerCase());
+}
+
+function slugify(value: string) {
+  return value.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "seller";
+}
+
+function titleize(value: string) {
+  return value
+    .replace(/[._+-]+/g, " ")
+    .split(" ")
+    .filter(Boolean)
+    .map((part) => part[0]?.toUpperCase() + part.slice(1))
+    .join(" ") || "GetThe Seller";
 }
 
 function isOpenOfferStatus(status: Offer["status"]) {
@@ -3267,6 +3619,62 @@ function mapTransaction(row: NonNullable<PrismaTransaction>): Transaction {
     status: row.status.toLowerCase() as TransactionStatus,
     statusTimeline: Array.isArray(row.statusTimeline) ? (row.statusTimeline as Transaction["statusTimeline"]) : [],
     transferChecklist: Array.isArray(row.transferChecklist) ? (row.transferChecklist as Transaction["transferChecklist"]) : []
+  };
+}
+
+function mapTransactionDashboardItem(row: NonNullable<PrismaTransaction>): TransactionDashboardItem {
+  const transaction = mapTransaction(row);
+  return {
+    id: transaction.id,
+    listingId: transaction.listingId,
+    domain: row.listing.domain,
+    buyerEmail: row.buyer.email,
+    sellerEmail: row.listing.seller.email,
+    sellerName: row.listing.seller.sellerProfile?.publicName ?? row.listing.seller.displayName ?? row.listing.seller.email,
+    amount: transaction.amount,
+    commission: transaction.commission,
+    status: transaction.status,
+    escrowId: transaction.escrowId,
+    escrowUrl: transaction.escrowUrl,
+    createdAt: row.createdAt.toISOString(),
+    updatedAt: row.updatedAt.toISOString()
+  };
+}
+
+function mapLocalTransactionDashboardItem(record: LocalTransactionRecord): TransactionDashboardItem {
+  return {
+    id: record.transaction.id,
+    listingId: record.transaction.listingId,
+    domain: record.listing.domain,
+    buyerEmail: record.transaction.buyerEmail,
+    sellerEmail: record.sellerEmail,
+    sellerName: record.listing.seller.publicName,
+    amount: record.transaction.amount,
+    commission: record.transaction.commission,
+    status: record.transaction.status,
+    escrowId: record.transaction.escrowId,
+    escrowUrl: record.transaction.escrowUrl,
+    createdAt: record.createdAt,
+    updatedAt: record.updatedAt
+  };
+}
+
+function buildSellerProfilePage(seller: SellerProfile, listings: DomainListing[]): SellerProfilePage {
+  const activeListings = listings.filter((listing) => listing.status === "active").length;
+  const pendingListings = listings.filter((listing) => listing.status === "pending_verification").length;
+  const totalAsk = listings.reduce((sum, listing) => sum + listing.price, 0);
+
+  return {
+    seller,
+    listings,
+    metrics: {
+      activeListings,
+      pendingListings,
+      totalAsk,
+      averageAsk: listings.length ? Math.round(totalAsk / listings.length) : 0,
+      tlds: Array.from(new Set(listings.map((listing) => listing.tld))).sort(),
+      categories: Array.from(new Set(listings.map((listing) => listing.category))).sort()
+    }
   };
 }
 

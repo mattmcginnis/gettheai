@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { BadgeDollarSign, FileCheck2, ShieldCheck, Sparkles } from "lucide-react";
 import { AppraisalWorkbench } from "@/components/appraisal-workbench";
+import { ButtonLink } from "@/components/button-link";
 import { DomainCard } from "@/components/domain-card";
 import { ImportWorkbench } from "@/components/import-workbench";
 import { ListingWorkbench } from "@/components/listing-workbench";
@@ -48,12 +49,15 @@ export default async function SellerPage({
   return (
     <main>
       <section className="border-b border-line bg-white py-10">
-        <div className="shell">
-          <h1 className="text-4xl font-bold">Seller dashboard</h1>
-          <p className="mt-3 max-w-3xl text-base leading-7 text-ink/66">
-            List verified domains, import portfolios, use AI pricing guidance, and track
-            Escrow.com handoff status without locking sellers into a single marketplace.
-          </p>
+        <div className="shell flex flex-wrap items-end justify-between gap-5">
+          <div>
+            <h1 className="text-4xl font-bold">Seller dashboard</h1>
+            <p className="mt-3 max-w-3xl text-base leading-7 text-ink/66">
+              List verified domains, import portfolios, use AI pricing guidance, and track
+              Escrow.com handoff status without locking sellers into a single marketplace.
+            </p>
+          </div>
+          <ButtonLink href="/transactions/dashboard" variant="secondary">Transactions</ButtonLink>
         </div>
       </section>
 

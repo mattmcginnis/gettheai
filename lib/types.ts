@@ -40,6 +40,19 @@ export interface SellerProfile {
   avgResponseHours: number;
 }
 
+export interface SellerProfilePage {
+  seller: SellerProfile;
+  listings: DomainListing[];
+  metrics: {
+    activeListings: number;
+    pendingListings: number;
+    totalAsk: number;
+    averageAsk: number;
+    tlds: string[];
+    categories: string[];
+  };
+}
+
 export interface ComparableSale {
   domain: string;
   price: number;
@@ -163,6 +176,34 @@ export interface Transaction {
     label: string;
     done: boolean;
   }>;
+}
+
+export interface TransactionDashboardItem {
+  id: string;
+  listingId: string;
+  domain: string;
+  buyerEmail: string;
+  sellerEmail: string;
+  sellerName: string;
+  amount: number;
+  commission: number;
+  status: TransactionStatus;
+  escrowId?: string;
+  escrowUrl?: string;
+  updatedAt: string;
+  createdAt: string;
+}
+
+export interface ParkedInquiry {
+  id: string;
+  listingId: string;
+  domain: string;
+  sellerEmail: string;
+  name: string;
+  email: string;
+  message: string;
+  budget?: number;
+  createdAt: string;
 }
 
 export interface AdminQueueItem {

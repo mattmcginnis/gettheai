@@ -1,18 +1,24 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
+  createParkedInquiry,
   createOfferRecord,
   createSearchAlert,
   createSupportCase,
+  createTransactionRecord,
   createWatchlistItem,
   deleteSearchAlert,
   deleteWatchlistItem,
   deliverSearchAlerts,
   getNotificationPreferences,
+  getSellerProfilePage,
   listOfferInbox,
   listNotificationEvents,
   listSearchAlerts,
   listSellerInventory,
   listWatchlistItems,
+  listSellerListings,
+  listTransactionDashboard,
+  processPortfolioImport,
   updateSearchAlert,
   updateNotificationPreferences,
   verifyListingOwnership
@@ -94,6 +100,21 @@ describe("marketplace workflow repository fallbacks", () => {
     expect(supportCase.aiDraftResponses.length).toBe(1);
   });
 
+  it("persists imported portfolio drafts to the authenticated seller in local mode", async () => {
+    const domain = `imported-${Date.now()}.com`;
+    const result = await processPortfolioImport(
+      `domain,price,minimum offer,registrar,category\n${domain},2400,1600,Namecheap,Imported`,
+      { sellerEmail: "importer@example.com" }
+    );
+    const sellerListings = await listSellerListings({ email: "importer@example.com", role: "seller" });
+    const otherSellerListings = await listSellerListings({ email: "other@example.com", role: "seller" });
+
+    expect(result.summary.accepted).toBe(1);
+    expect(result.accepted[0]).toMatchObject({ domain, sellerEmail: "importer@example.com" });
+    expect(sellerListings.some((listing) => listing.domain === domain)).toBe(true);
+    expect(otherSellerListings.some((listing) => listing.domain === domain)).toBe(false);
+  });
+
   it("returns an empty notification feed in local mode", async () => {
     await expect(listNotificationEvents({ recipientEmail: "buyer@example.com" })).resolves.toEqual([]);
   });
@@ -112,6 +133,43 @@ describe("marketplace workflow repository fallbacks", () => {
     expect(inventory.length).toBeGreaterThan(0);
     expect(buyerInbox.some((item) => item.id === offer.id)).toBe(true);
     expect(sellerInbox.some((item) => item.id === offer.id)).toBe(true);
+  });
+
+  it("lists transaction dashboard records by buyer and seller in local mode", async () => {
+    const transaction = await createTransactionRecord({
+      listingId: "dom-1",
+      buyerEmail: "transaction-buyer@example.com",
+      amount: 7200
+    });
+    const buyerTransactions = await listTransactionDashboard({
+      email: "transaction-buyer@example.com",
+      role: "buyer"
+    });
+    const sellerTransactions = await listTransactionDashboard({
+      email: "northstar@getthe.com",
+      role: "seller"
+    });
+
+    expect(buyerTransactions.some((item) => item.id === transaction.id)).toBe(true);
+    expect(sellerTransactions.some((item) => item.id === transaction.id)).toBe(true);
+  });
+
+  it("creates parked inquiries and public seller profile pages in local mode", async () => {
+    const inquiry = await createParkedInquiry({
+      listingId: "dom-1",
+      name: "Ada Buyer",
+      email: "ada@example.com",
+      budget: 7500,
+      message: "I am interested in acquiring this domain for a product launch."
+    });
+    const profile = await getSellerProfilePage("northstar-domains");
+
+    expect(inquiry).toMatchObject({
+      domain: "atlasforge.com",
+      sellerEmail: "northstar@getthe.com"
+    });
+    expect(profile?.seller.publicName).toBe("Northstar Domains");
+    expect(profile?.listings.some((listing) => listing.domain === "atlasforge.com")).toBe(true);
   });
 
   it("updates preferences and delivers saved-search alerts in local mode", async () => {
