@@ -649,6 +649,37 @@ export async function syncTransactionEscrowStatus(input: { transactionId: string
   };
 }
 
+export async function getTransactionDetail(identifier: string) {
+  if (!isDatabaseConfigured()) {
+    return null;
+  }
+
+  const row = await getPrisma().transaction.findFirst({
+    where: {
+      OR: [{ id: identifier }, { escrowId: identifier }]
+    },
+    include: transactionInclude()
+  });
+
+  if (!row) {
+    return null;
+  }
+
+  return {
+    transaction: mapTransaction(row),
+    listing: mapListing(row.listing),
+    buyer: {
+      id: row.buyer.id,
+      email: row.buyer.email,
+      verificationTier: mapVerificationFromPrisma(row.buyer.verificationTier),
+      twoFactorEnabled: row.buyer.twoFactorEnabled
+    },
+    offer: row.offer ? mapOffer({ ...row.offer, buyer: row.buyer, listing: row.listing }) : null,
+    payoutState: row.payoutState,
+    updatedAt: row.updatedAt.toISOString()
+  };
+}
+
 export async function processPortfolioImport(csv: string) {
   const rows = parsePortfolioCsv(csv);
   const accepted = rows.filter((row) => row.domain && isValidDomain(row.domain) && (row.price ?? 0) >= 500);

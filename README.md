@@ -45,6 +45,7 @@ npm run build
 - `/seller` seller dashboard with appraisal and CSV portfolio import.
 - `/buyer` buyer desk with watchlist and transaction tracking.
 - `/admin` trust, review, support, and operating metrics.
+- `/transactions/[transactionId]` escrow transaction timeline, parties, payout state, and transfer checklist.
 - `/intelligence` marketplace analytics for TLDs, categories, pricing, verification, and keyword signals.
 - `/security` 2FA, verification, ownership, and abuse controls.
 - `/legal` policy posture and operations runbooks.
@@ -137,6 +138,13 @@ npm run preview:deploy
 - Escrow.com: set `ESCROW_API_EMAIL`, `ESCROW_API_KEY`, and `ESCROW_MODE=api` to use authenticated transaction creation and admin status sync. Webhooks support HMAC verification via `ESCROW_WEBHOOK_SECRET`.
 - Postmark: set `POSTMARK_SERVER_TOKEN` to send transactional email for offers, counters, escrow status, verification, and support.
 - AI provider: set `AI_PROVIDER=openai`, `OPENAI_API_KEY`, and `OPENAI_MODEL` to route guarded draft/appraisal workflows through the OpenAI Responses API while preserving audit metadata.
+
+## Private Beta Controls
+
+- Write requests are same-origin checked and rate-limited by path/IP in middleware.
+- Escrow.com webhooks use HMAC verification when `ESCROW_WEBHOOK_SECRET` is set and reject duplicate signatures inside the replay window.
+- Admin operations expose compact user, listing, offer, transaction, support, and audit snapshots for beta monitoring.
+- `npm run preview:verify-env` reports missing launch credentials; set `REQUIRE_PRODUCTION_SECRETS=true` in CI to fail hard.
 
 ## Verification Completed
 

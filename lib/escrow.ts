@@ -1,4 +1,5 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
+import { checkReplay } from "@/lib/security";
 import type { DomainListing } from "@/lib/types";
 
 export interface EscrowHandoffInput {
@@ -58,6 +59,18 @@ export function verifyEscrowWebhookSignature(rawBody: string, signature: string 
   const expected = Buffer.from(digest, "hex");
   const actual = Buffer.from(normalized, "hex");
   return expected.length === actual.length && timingSafeEqual(expected, actual);
+}
+
+export function verifyEscrowWebhookReplay(signature: string | null) {
+  if (!process.env.ESCROW_WEBHOOK_SECRET) {
+    return true;
+  }
+
+  const windowSeconds = Number(process.env.ESCROW_WEBHOOK_REPLAY_WINDOW_SECONDS ?? 300);
+  return checkReplay({
+    key: signature,
+    windowMs: windowSeconds * 1000
+  }).allowed;
 }
 
 export function isEscrowApiConfigured() {

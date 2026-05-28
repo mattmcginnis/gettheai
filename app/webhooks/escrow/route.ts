@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { verifyEscrowWebhookSignature } from "@/lib/escrow";
+import { verifyEscrowWebhookReplay, verifyEscrowWebhookSignature } from "@/lib/escrow";
 import { updateTransactionFromEscrowEvent } from "@/lib/repository";
 
 export async function POST(request: NextRequest) {
@@ -8,6 +8,10 @@ export async function POST(request: NextRequest) {
 
   if (!verifyEscrowWebhookSignature(rawBody, signature)) {
     return NextResponse.json({ error: "Invalid Escrow.com webhook signature." }, { status: 401 });
+  }
+
+  if (!verifyEscrowWebhookReplay(signature)) {
+    return NextResponse.json({ error: "Duplicate Escrow.com webhook rejected." }, { status: 409 });
   }
 
   const event = JSON.parse(rawBody || "{}");
