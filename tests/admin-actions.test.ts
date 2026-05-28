@@ -153,7 +153,7 @@ describe("admin workflow fallbacks", () => {
     const result = await updateTransactionOperations({
       transactionId: "txn_123",
       status: "buyer_funded",
-      checklistUpdates: [{ index: 0, done: true }],
+      checklistUpdates: [{ index: 0, done: true, owner: "buyer", note: "Funds confirmed." }],
       actorEmail: "admin@getthe.com",
       note: "Buyer funding verified."
     });
@@ -162,7 +162,7 @@ describe("admin workflow fallbacks", () => {
       action: "transaction_operations",
       transactionId: "txn_123",
       status: "buyer_funded",
-      checklistUpdates: [{ index: 0, done: true }],
+      checklistUpdates: [{ index: 0, done: true, owner: "buyer", note: "Funds confirmed." }],
       mode: "local"
     });
   });

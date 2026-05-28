@@ -75,11 +75,11 @@ export function createEscrowTransaction({
       statusEvent("escrow_started", "Buyer is handed off to Escrow.com.", createdAt)
     ],
     transferChecklist: [
-      { label: "Buyer funds Escrow.com transaction", done: false },
-      { label: "Seller unlocks domain and obtains transfer code", done: false },
-      { label: "Buyer confirms registrar transfer", done: false },
-      { label: "GetThe records transfer verification", done: false },
-      { label: "Escrow.com releases seller payout", done: false }
+      { label: "Buyer funds Escrow.com transaction", done: false, owner: "buyer", dueAt: deadline(2, createdAt) },
+      { label: "Seller unlocks domain and obtains transfer code", done: false, owner: "seller", dueAt: deadline(4, createdAt) },
+      { label: "Buyer confirms registrar transfer", done: false, owner: "buyer", dueAt: deadline(7, createdAt) },
+      { label: "GetThe records transfer verification", done: false, owner: "admin", dueAt: deadline(8, createdAt) },
+      { label: "Escrow.com releases seller payout", done: false, owner: "escrow", dueAt: deadline(10, createdAt) }
     ]
   };
 }
@@ -90,6 +90,12 @@ function getListingById(id: string) {
 
 function statusEvent(status: TransactionStatus, label: string, at: string) {
   return { status, label, at };
+}
+
+function deadline(days: number, from: string) {
+  const date = new Date(from);
+  date.setDate(date.getDate() + days);
+  return date.toISOString();
 }
 
 function buildEscrowHandoffUrl(escrowId: string, domain: string, amount: number, buyerEmail: string) {

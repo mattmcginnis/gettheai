@@ -175,6 +175,10 @@ export interface Transaction {
   transferChecklist: Array<{
     label: string;
     done: boolean;
+    owner?: "buyer" | "seller" | "admin" | "escrow";
+    dueAt?: string;
+    note?: string;
+    updatedAt?: string;
   }>;
 }
 
@@ -203,6 +207,9 @@ export interface ParkedInquiry {
   email: string;
   message: string;
   budget?: number;
+  status: "new" | "contacted" | "converted" | "closed";
+  followUpNote?: string;
+  updatedAt?: string;
   createdAt: string;
 }
 
@@ -291,6 +298,9 @@ export interface LaunchGate {
   label: string;
   status: "pass" | "warn" | "fail";
   detail: string;
+  owner?: "engineering" | "operations" | "legal" | "security" | "growth";
+  action?: string;
+  envVars?: string[];
 }
 
 export interface OperationalAnalytics {

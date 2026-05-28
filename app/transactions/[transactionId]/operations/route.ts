@@ -19,7 +19,13 @@ const schema = z.object({
       "disputed"
     ])
     .optional(),
-  checklistUpdates: z.array(z.object({ index: z.number().int().min(0), done: z.boolean() })).optional(),
+  checklistUpdates: z.array(z.object({
+    index: z.number().int().min(0),
+    done: z.boolean().optional(),
+    owner: z.enum(["buyer", "seller", "admin", "escrow"]).optional(),
+    dueAt: z.string().datetime().optional(),
+    note: z.string().max(1000).optional()
+  })).optional(),
   note: z.string().optional()
 });
 

@@ -4,6 +4,7 @@ import { AppraisalWorkbench } from "@/components/appraisal-workbench";
 import { ButtonLink } from "@/components/button-link";
 import { DomainCard } from "@/components/domain-card";
 import { ImportWorkbench } from "@/components/import-workbench";
+import { InquiryFollowupPanel } from "@/components/inquiry-followup-panel";
 import { ListingWorkbench } from "@/components/listing-workbench";
 import { MetricCard } from "@/components/metric-card";
 import { NotificationFeed } from "@/components/notification-feed";
@@ -19,6 +20,7 @@ import { requirePageRole } from "@/lib/page-auth";
 import {
   getFeaturedListings,
   getNotificationPreferences,
+  listParkedInquiries,
   listOfferInbox,
   listSellerInventory,
   listSellerListings
@@ -36,11 +38,12 @@ export default async function SellerPage({
   const session = await requirePageRole(["seller", "admin"], "/seller");
   const params = await searchParams;
   const initialDomain = Array.isArray(params.domain) ? params.domain[0] : params.domain;
-  const [listings, inventory, sellerListings, offers, notificationPreferences] = await Promise.all([
+  const [listings, inventory, sellerListings, offers, inquiries, notificationPreferences] = await Promise.all([
     getFeaturedListings(3),
     listSellerInventory({ email: session.email, role: session.role }),
     listSellerListings({ email: session.email, role: session.role }),
     listOfferInbox({ email: session.email, role: session.role === "admin" ? "admin" : "seller" }),
+    listParkedInquiries({ email: session.email, role: session.role === "admin" ? "admin" : "seller", status: "all" }),
     getNotificationPreferences(session.email)
   ]);
   const activeInventory = inventory.filter((item) => item.status === "active").length;
@@ -74,6 +77,7 @@ export default async function SellerPage({
         <div className="shell grid gap-6 lg:grid-cols-2">
           <SellerInventoryPanel inventory={inventory} />
           <SellerListingEditor listings={sellerListings} />
+          <InquiryFollowupPanel inquiries={inquiries} actorEmail={session.email} actorRole={session.role === "admin" ? "admin" : "seller"} title="Seller inquiries" />
           <OfferInbox offers={offers} title="Seller offer inbox" empty="No buyer offers yet." />
           <ListingWorkbench initialDomain={initialDomain ?? "clearledger.com"} />
           <AppraisalWorkbench initialDomain={initialDomain ?? "clearledger.com"} />

@@ -14,6 +14,7 @@ const statuses: TransactionStatus[] = [
   "canceled",
   "disputed"
 ];
+const owners = ["buyer", "seller", "admin", "escrow"] as const;
 
 export function TransactionOperationsPanel({ transaction }: { transaction: Transaction }) {
   const [status, setStatus] = useState<TransactionStatus>(transaction.status);
@@ -35,7 +36,13 @@ export function TransactionOperationsPanel({ transaction }: { transaction: Trans
         status,
         actorEmail: "admin@getthe.com",
         note: note || undefined,
-        checklistUpdates: checklist.map((item, index) => ({ index, done: item.done }))
+        checklistUpdates: checklist.map((item, index) => ({
+          index,
+          done: item.done,
+          owner: item.owner,
+          dueAt: item.dueAt,
+          note: item.note
+        }))
       })
     });
     const payload = await response.json();
@@ -106,19 +113,47 @@ export function TransactionOperationsPanel({ transaction }: { transaction: Trans
         </label>
         <div className="grid gap-2">
           {checklist.map((item, index) => (
-            <label key={item.label} className="flex items-center gap-3 rounded-md border border-line p-3 text-sm">
-              <input
-                type="checkbox"
-                checked={item.done}
-                onChange={(event) => {
-                  const next = checklist.map((candidate, candidateIndex) =>
-                    candidateIndex === index ? { ...candidate, done: event.target.checked } : candidate
-                  );
-                  setChecklist(next);
-                }}
-              />
-              <span>{item.label}</span>
-            </label>
+            <div key={item.label} className="grid gap-3 rounded-md border border-line p-3 text-sm">
+              <label className="flex items-center gap-3">
+                <input
+                  type="checkbox"
+                  checked={item.done}
+                  onChange={(event) => updateChecklist(index, { done: event.target.checked })}
+                />
+                <span className="font-semibold">{item.label}</span>
+              </label>
+              <div className="grid gap-3 sm:grid-cols-[140px_150px_1fr]">
+                <label className="grid gap-1 text-xs font-bold uppercase text-ink/48">
+                  Owner
+                  <select
+                    className="focus-ring h-10 rounded-md border border-line px-3 text-sm normal-case text-ink"
+                    value={item.owner ?? "admin"}
+                    onChange={(event) => updateChecklist(index, { owner: event.target.value as typeof owners[number] })}
+                  >
+                    {owners.map((owner) => (
+                      <option key={owner} value={owner}>{owner}</option>
+                    ))}
+                  </select>
+                </label>
+                <label className="grid gap-1 text-xs font-bold uppercase text-ink/48">
+                  Due
+                  <input
+                    className="focus-ring h-10 rounded-md border border-line px-3 text-sm normal-case text-ink"
+                    type="date"
+                    value={dateInputValue(item.dueAt)}
+                    onChange={(event) => updateChecklist(index, { dueAt: dateToIso(event.target.value) })}
+                  />
+                </label>
+                <label className="grid gap-1 text-xs font-bold uppercase text-ink/48">
+                  Task note
+                  <input
+                    className="focus-ring h-10 rounded-md border border-line px-3 text-sm normal-case text-ink"
+                    value={item.note ?? ""}
+                    onChange={(event) => updateChecklist(index, { note: event.target.value })}
+                  />
+                </label>
+              </div>
+            </div>
           ))}
         </div>
         <label className="grid gap-1 text-sm font-medium">
@@ -147,4 +182,18 @@ export function TransactionOperationsPanel({ transaction }: { transaction: Trans
       {message ? <p className="mt-4 rounded-md bg-paper p-3 text-sm text-ink/72">{message}</p> : null}
     </div>
   );
+
+  function updateChecklist(index: number, patch: Partial<Transaction["transferChecklist"][number]>) {
+    setChecklist((current) =>
+      current.map((candidate, candidateIndex) => (candidateIndex === index ? { ...candidate, ...patch } : candidate))
+    );
+  }
+}
+
+function dateInputValue(value: string | undefined) {
+  return value ? value.slice(0, 10) : "";
+}
+
+function dateToIso(value: string) {
+  return value ? new Date(`${value}T17:00:00.000Z`).toISOString() : undefined;
 }

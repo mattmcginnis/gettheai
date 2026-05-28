@@ -11,6 +11,7 @@ import {
   deliverSearchAlerts,
   getNotificationPreferences,
   getSellerProfilePage,
+  listParkedInquiries,
   listOfferInbox,
   listNotificationEvents,
   listSearchAlerts,
@@ -19,6 +20,7 @@ import {
   listSellerListings,
   listTransactionDashboard,
   processPortfolioImport,
+  updateParkedInquiry,
   updateSearchAlert,
   updateNotificationPreferences,
   verifyListingOwnership
@@ -115,6 +117,17 @@ describe("marketplace workflow repository fallbacks", () => {
     expect(otherSellerListings.some((listing) => listing.domain === domain)).toBe(false);
   });
 
+  it("routes duplicate portfolio rows to review in local mode", async () => {
+    const domain = `duplicate-${Date.now()}.com`;
+    const result = await processPortfolioImport(
+      `domain,price,minimum offer,registrar,category\n${domain},2400,1600,Namecheap,Imported\n${domain},2600,1700,Porkbun,Imported`,
+      { sellerEmail: "importer@example.com" }
+    );
+
+    expect(result.summary.accepted).toBe(1);
+    expect(result.review.some((row) => row.reason === "duplicate_domain")).toBe(true);
+  });
+
   it("returns an empty notification feed in local mode", async () => {
     await expect(listNotificationEvents({ recipientEmail: "buyer@example.com" })).resolves.toEqual([]);
   });
@@ -162,12 +175,22 @@ describe("marketplace workflow repository fallbacks", () => {
       budget: 7500,
       message: "I am interested in acquiring this domain for a product launch."
     });
+    const inquiries = await listParkedInquiries({ email: "northstar@getthe.com", role: "seller", status: "new" });
+    const updated = await updateParkedInquiry({
+      inquiryId: inquiry.id,
+      actorEmail: "northstar@getthe.com",
+      actorRole: "seller",
+      status: "contacted",
+      followUpNote: "Seller replied with Escrow.com next steps."
+    });
     const profile = await getSellerProfilePage("northstar-domains");
 
     expect(inquiry).toMatchObject({
       domain: "atlasforge.com",
       sellerEmail: "northstar@getthe.com"
     });
+    expect(inquiries.some((item) => item.id === inquiry.id)).toBe(true);
+    expect(updated.inquiry).toMatchObject({ status: "contacted", followUpNote: "Seller replied with Escrow.com next steps." });
     expect(profile?.seller.publicName).toBe("Northstar Domains");
     expect(profile?.listings.some((listing) => listing.domain === "atlasforge.com")).toBe(true);
   });

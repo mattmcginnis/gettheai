@@ -8,13 +8,16 @@ const sampleCsv = "domain,price,minimum offer,registrar,category\nclearledger.co
 
 interface ImportRow {
   domain?: string;
+  listingId?: string;
   price?: number;
   minimumOffer?: number;
   registrar?: string;
   category?: string;
+  sellerEmail?: string;
   status?: string;
   ownershipVerification?: string;
   reason?: string;
+  detail?: string;
 }
 
 interface ImportResult {
@@ -116,8 +119,9 @@ function ImportTable({
               <tr>
                 <th className="px-3 py-2 font-bold uppercase">Domain</th>
                 <th className="px-3 py-2 font-bold uppercase">Ask</th>
+                <th className="px-3 py-2 font-bold uppercase">Minimum</th>
                 <th className="px-3 py-2 font-bold uppercase">Registrar</th>
-                <th className="px-3 py-2 font-bold uppercase">Status</th>
+                <th className="px-3 py-2 font-bold uppercase">Review</th>
               </tr>
             </thead>
             <tbody>
@@ -125,8 +129,12 @@ function ImportTable({
                 <tr key={`${row.domain ?? "row"}-${index}`} className="border-t border-line">
                   <td className="px-3 py-2 font-semibold">{row.domain ?? "Missing domain"}</td>
                   <td className="px-3 py-2">{row.price ? `$${row.price.toLocaleString("en-US")}` : "Needs price"}</td>
+                  <td className="px-3 py-2">{row.minimumOffer ? `$${row.minimumOffer.toLocaleString("en-US")}` : "Auto"}</td>
                   <td className="px-3 py-2">{row.registrar ?? "Unknown"}</td>
-                  <td className="px-3 py-2">{row.reason ?? row.ownershipVerification ?? row.status ?? "pending verification"}</td>
+                  <td className="px-3 py-2">
+                    <span className="block font-semibold">{formatReason(row.reason ?? row.ownershipVerification ?? row.status)}</span>
+                    <span className="mt-1 block text-ink/48">{row.detail ?? row.sellerEmail ?? row.listingId ?? "pending verification"}</span>
+                  </td>
                 </tr>
               ))}
             </tbody>
@@ -137,4 +145,9 @@ function ImportTable({
       )}
     </div>
   );
+}
+
+function formatReason(value: string | undefined) {
+  if (!value) return "pending verification";
+  return value.replaceAll("_", " ");
 }

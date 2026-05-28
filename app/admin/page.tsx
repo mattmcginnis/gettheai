@@ -8,6 +8,7 @@ import {
   Flag,
   HandCoins,
   LifeBuoy,
+  MessageSquareReply,
   Radar,
   ScrollText,
   ShieldAlert,
@@ -136,6 +137,19 @@ export default async function AdminPage({
             }))}
             empty="No persisted transactions yet."
           />
+
+          <div className="rounded-md border border-line bg-white p-5 shadow-panel">
+            <div className="flex items-center gap-2">
+              <MessageSquareReply className="text-sky" size={20} aria-hidden="true" />
+              <h2 className="text-2xl font-bold">Inquiries</h2>
+            </div>
+            <p className="mt-4 text-sm leading-6 text-ink/68">
+              Parked-domain inquiry follow-up, seller outreach status, and conversion tracking.
+            </p>
+            <Link href="/admin/inquiries" className="focus-ring mt-5 inline-flex rounded-md border border-line px-4 py-2 text-sm font-semibold hover:border-mint hover:text-mint">
+              View inquiries
+            </Link>
+          </div>
 
           <AdminPanel
             icon={<ScrollText className="text-sky" size={20} aria-hidden="true" />}

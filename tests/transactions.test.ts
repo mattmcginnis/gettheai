@@ -22,5 +22,7 @@ describe("transactions", () => {
     expect(transaction.escrowProvider).toBe("escrow.com");
     expect(transaction.escrowUrl).toContain("escrow.com");
     expect(transaction.commission).toBeGreaterThan(0);
+    expect(transaction.transferChecklist[0]).toMatchObject({ owner: "buyer" });
+    expect(transaction.transferChecklist[0].dueAt).toBeTruthy();
   });
 });

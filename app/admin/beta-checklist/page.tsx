@@ -54,12 +54,14 @@ export default async function AdminBetaChecklistPage() {
               {gates.map((gate) => (
                 <div key={gate.id} className="flex gap-3 rounded-md border border-line p-3 text-sm text-ink/72">
                   <GateIcon status={gate.status} />
-                  <span>
-                    <span className="block font-semibold">{gate.label}</span>
-                    <span className="mt-1 block text-xs leading-5 text-ink/55">{gate.detail}</span>
-                  </span>
-                </div>
-              ))}
+                    <span>
+                      <span className="block font-semibold">{gate.label}</span>
+                      <span className="mt-1 block text-xs leading-5 text-ink/55">{gate.detail}</span>
+                      {gate.action ? <span className="mt-1 block text-xs leading-5 text-ink/55">Action: {gate.action}</span> : null}
+                      {gate.envVars?.length ? <span className="mt-1 block text-xs leading-5 text-ink/45">Env: {gate.envVars.join(", ")}</span> : null}
+                    </span>
+                  </div>
+                ))}
             </div>
           </div>
 
@@ -77,6 +79,8 @@ export default async function AdminBetaChecklistPage() {
                       {gate.label}
                     </div>
                     <p className="mt-2 text-xs leading-5 text-ink/55">{gate.detail}</p>
+                    {gate.owner ? <p className="mt-1 text-xs font-semibold uppercase text-ink/42">{gate.owner}</p> : null}
+                    {gate.action ? <p className="mt-1 text-xs leading-5 text-ink/55">{gate.action}</p> : null}
                   </div>
                 ))}
               </div>

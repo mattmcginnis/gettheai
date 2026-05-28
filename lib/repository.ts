@@ -331,6 +331,10 @@ export async function createListingDraft(input: {
     throw new Error("Invalid domain.");
   }
 
+  if ((await getMarketplaceListing(domain))) {
+    throw new Error("Duplicate domain listing.");
+  }
+
   const appraisal = appraiseDomain(domain);
   const ownershipVerification = {
     method: "dns_txt" as const,
@@ -1185,11 +1189,36 @@ export async function createTransactionRecord(input: {
           }
     ],
     transferChecklist: [
-      { label: "Buyer funds Escrow.com transaction", done: false },
-      { label: "Seller unlocks domain and obtains transfer code", done: false },
-      { label: "Buyer confirms registrar transfer", done: false },
-      { label: "GetThe records transfer verification", done: false },
-      { label: "Escrow.com releases seller payout", done: false }
+      {
+        label: "Buyer funds Escrow.com transaction",
+        done: false,
+        owner: "buyer",
+        dueAt: addDays(new Date(), 2).toISOString()
+      },
+      {
+        label: "Seller unlocks domain and obtains transfer code",
+        done: false,
+        owner: "seller",
+        dueAt: addDays(new Date(), 4).toISOString()
+      },
+      {
+        label: "Buyer confirms registrar transfer",
+        done: false,
+        owner: "buyer",
+        dueAt: addDays(new Date(), 7).toISOString()
+      },
+      {
+        label: "GetThe records transfer verification",
+        done: false,
+        owner: "admin",
+        dueAt: addDays(new Date(), 8).toISOString()
+      },
+      {
+        label: "Escrow.com releases seller payout",
+        done: false,
+        owner: "escrow",
+        dueAt: addDays(new Date(), 10).toISOString()
+      }
     ]
   };
 
@@ -1629,6 +1658,8 @@ export async function createParkedInquiry(input: {
     email: input.email.toLowerCase(),
     message: input.message.trim(),
     budget: input.budget,
+    status: "new",
+    updatedAt: now,
     createdAt: now
   };
 
@@ -1647,6 +1678,102 @@ export async function createParkedInquiry(input: {
   });
 
   return inquiry;
+}
+
+export async function listParkedInquiries(input: {
+  email: string;
+  role: "seller" | "admin";
+  status?: ParkedInquiry["status"] | "all";
+  q?: string;
+}): Promise<ParkedInquiry[]> {
+  const status = input.status && input.status !== "all" ? input.status : undefined;
+  const q = input.q?.trim().toLowerCase();
+  const email = input.email.toLowerCase();
+
+  if (!isDatabaseConfigured()) {
+    return localParkedInquiries
+      .filter((inquiry) => input.role === "admin" || inquiry.sellerEmail.toLowerCase() === email)
+      .filter((inquiry) => !status || inquiry.status === status)
+      .filter((inquiry) => !q || inquiryMatchesQuery(inquiry, q))
+      .sort((a, b) => (b.updatedAt ?? b.createdAt).localeCompare(a.updatedAt ?? a.createdAt));
+  }
+
+  const events = await getPrisma().auditEvent.findMany({
+    where: {
+      eventType: {
+        in: ["parking.inquiry.created", "parking.inquiry.followup.updated"]
+      }
+    },
+    orderBy: { createdAt: "asc" },
+    take: 500
+  });
+  const inquiries = mergeInquiryAuditEvents(events.map((event) => ({
+    eventType: event.eventType,
+    metadata: event.metadata,
+    createdAt: event.createdAt.toISOString()
+  })));
+
+  return inquiries
+    .filter((inquiry) => input.role === "admin" || inquiry.sellerEmail.toLowerCase() === email)
+    .filter((inquiry) => !status || inquiry.status === status)
+    .filter((inquiry) => !q || inquiryMatchesQuery(inquiry, q))
+    .sort((a, b) => (b.updatedAt ?? b.createdAt).localeCompare(a.updatedAt ?? a.createdAt));
+}
+
+export async function updateParkedInquiry(input: {
+  inquiryId: string;
+  actorEmail: string;
+  actorRole: "seller" | "admin";
+  status: ParkedInquiry["status"];
+  followUpNote?: string;
+}) {
+  const existing = (await listParkedInquiries({ email: input.actorEmail, role: input.actorRole, status: "all" }))
+    .find((inquiry) => inquiry.id === input.inquiryId);
+  if (!existing) {
+    throw new Error("Inquiry not found.");
+  }
+
+  const updated: ParkedInquiry = {
+    ...existing,
+    status: input.status,
+    followUpNote: input.followUpNote ?? existing.followUpNote,
+    updatedAt: new Date().toISOString()
+  };
+
+  if (!isDatabaseConfigured()) {
+    const index = localParkedInquiries.findIndex((inquiry) => inquiry.id === input.inquiryId);
+    if (index >= 0) {
+      localParkedInquiries[index] = updated;
+    }
+    return {
+      action: "parking_inquiry_update",
+      inquiry: updated,
+      mode: "local"
+    };
+  }
+
+  const actor = await ensureUser(input.actorEmail, input.actorRole === "admin" ? "ADMIN" : "SELLER");
+  await getPrisma().auditEvent.create({
+    data: {
+      actorId: actor.id,
+      eventType: "parking.inquiry.followup.updated",
+      entityType: "domain_listing",
+      entityId: existing.listingId,
+      metadata: {
+        inquiryId: input.inquiryId,
+        status: input.status,
+        followUpNote: input.followUpNote,
+        actorEmail: input.actorEmail,
+        updatedAt: updated.updatedAt
+      } as Prisma.InputJsonValue
+    }
+  });
+
+  return {
+    action: "parking_inquiry_update",
+    inquiry: updated,
+    mode: "database"
+  };
 }
 
 export async function listTransactionDashboard(input: {
@@ -3125,7 +3252,13 @@ export async function updateTransactionOperations(input: {
   transactionId: string;
   actorEmail?: string;
   status?: TransactionStatus;
-  checklistUpdates?: Array<{ index: number; done: boolean }>;
+  checklistUpdates?: Array<{
+    index: number;
+    done?: boolean;
+    owner?: NonNullable<Transaction["transferChecklist"][number]["owner"]>;
+    dueAt?: string;
+    note?: string;
+  }>;
   note?: string;
 }) {
   if (!isDatabaseConfigured()) {
@@ -3144,7 +3277,7 @@ export async function updateTransactionOperations(input: {
       if (input.checklistUpdates?.length) {
         record.transaction.transferChecklist = record.transaction.transferChecklist.map((item, index) => {
           const update = input.checklistUpdates?.find((candidate) => candidate.index === index);
-          return update ? { ...item, done: update.done } : item;
+          return update ? mergeChecklistItem(item, update) : item;
         });
       }
       record.updatedAt = new Date().toISOString();
@@ -3174,7 +3307,7 @@ export async function updateTransactionOperations(input: {
   const existingChecklist = Array.isArray(existing.transferChecklist) ? existing.transferChecklist : [];
   const transferChecklist = existingChecklist.map((item, index) => {
     const update = input.checklistUpdates?.find((candidate) => candidate.index === index);
-    return update ? { ...(item as Record<string, unknown>), done: update.done } : item;
+    return update ? mergeChecklistItem(item as Transaction["transferChecklist"][number], update) : item;
   });
   const nextStatus = input.status ? mapTransactionStatusToPrisma(input.status) : existing.status;
   const shouldAppendTimeline = Boolean(input.status || input.note);
@@ -3657,6 +3790,80 @@ function mapLocalTransactionDashboardItem(record: LocalTransactionRecord): Trans
     createdAt: record.createdAt,
     updatedAt: record.updatedAt
   };
+}
+
+function mergeInquiryAuditEvents(events: Array<{ eventType: string; metadata: unknown; createdAt: string }>) {
+  const inquiries = new Map<string, ParkedInquiry>();
+
+  for (const event of events) {
+    const metadata = typeof event.metadata === "object" && event.metadata !== null
+      ? (event.metadata as Partial<ParkedInquiry> & { inquiryId?: string })
+      : {};
+
+    if (event.eventType === "parking.inquiry.created" && typeof metadata.id === "string") {
+      inquiries.set(metadata.id, normalizeInquiry(metadata, event.createdAt));
+      continue;
+    }
+
+    if (event.eventType === "parking.inquiry.followup.updated" && typeof metadata.inquiryId === "string") {
+      const existing = inquiries.get(metadata.inquiryId);
+      if (existing) {
+        inquiries.set(metadata.inquiryId, {
+          ...existing,
+          status: normalizeInquiryStatus(metadata.status) ?? existing.status,
+          followUpNote: typeof metadata.followUpNote === "string" ? metadata.followUpNote : existing.followUpNote,
+          updatedAt: typeof metadata.updatedAt === "string" ? metadata.updatedAt : event.createdAt
+        });
+      }
+    }
+  }
+
+  return Array.from(inquiries.values());
+}
+
+function normalizeInquiry(value: Partial<ParkedInquiry>, fallbackCreatedAt: string): ParkedInquiry {
+  return {
+    id: typeof value.id === "string" ? value.id : `inquiry_${fallbackCreatedAt}`,
+    listingId: typeof value.listingId === "string" ? value.listingId : "unknown",
+    domain: typeof value.domain === "string" ? value.domain : "unknown",
+    sellerEmail: typeof value.sellerEmail === "string" ? value.sellerEmail : "seller@getthe.com",
+    name: typeof value.name === "string" ? value.name : "Unknown buyer",
+    email: typeof value.email === "string" ? value.email : "buyer@getthe.local",
+    message: typeof value.message === "string" ? value.message : "",
+    budget: typeof value.budget === "number" ? value.budget : undefined,
+    status: normalizeInquiryStatus(value.status) ?? "new",
+    followUpNote: typeof value.followUpNote === "string" ? value.followUpNote : undefined,
+    updatedAt: typeof value.updatedAt === "string" ? value.updatedAt : fallbackCreatedAt,
+    createdAt: typeof value.createdAt === "string" ? value.createdAt : fallbackCreatedAt
+  };
+}
+
+function normalizeInquiryStatus(value: unknown): ParkedInquiry["status"] | null {
+  return value === "new" || value === "contacted" || value === "converted" || value === "closed" ? value : null;
+}
+
+function mergeChecklistItem(
+  item: Transaction["transferChecklist"][number],
+  update: {
+    done?: boolean;
+    owner?: NonNullable<Transaction["transferChecklist"][number]["owner"]>;
+    dueAt?: string;
+    note?: string;
+  }
+): Transaction["transferChecklist"][number] {
+  return {
+    ...item,
+    ...(typeof update.done === "boolean" ? { done: update.done } : {}),
+    ...(update.owner ? { owner: update.owner } : {}),
+    ...(update.dueAt ? { dueAt: update.dueAt } : {}),
+    ...(typeof update.note === "string" ? { note: update.note } : {}),
+    updatedAt: new Date().toISOString()
+  };
+}
+
+function inquiryMatchesQuery(inquiry: ParkedInquiry, query: string) {
+  return [inquiry.domain, inquiry.name, inquiry.email, inquiry.message, inquiry.sellerEmail]
+    .some((value) => value.toLowerCase().includes(query));
 }
 
 function buildSellerProfilePage(seller: SellerProfile, listings: DomainListing[]): SellerProfilePage {

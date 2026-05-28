@@ -34,5 +34,9 @@ describe("launch readiness gates", () => {
     expect(gates.some((gate) => gate.id === "scheduled-alerts" && gate.status === "pass")).toBe(true);
     expect(gates.some((gate) => gate.id === "legal-docs" && gate.status === "pass")).toBe(true);
     expect(gates.some((gate) => gate.id === "app-url" && gate.status === "pass")).toBe(true);
+    expect(gates.find((gate) => gate.id === "database")).toMatchObject({
+      owner: "engineering",
+      envVars: ["DATABASE_URL"]
+    });
   });
 });

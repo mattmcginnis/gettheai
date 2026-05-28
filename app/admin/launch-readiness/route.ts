@@ -34,8 +34,16 @@ export async function GET(request: NextRequest) {
 
 function toCsv(gates: ReturnType<typeof getLaunchGates>) {
   const rows = [
-    ["id", "label", "status", "detail"],
-    ...gates.map((gate) => [gate.id, gate.label, gate.status, gate.detail])
+    ["id", "label", "status", "owner", "detail", "action", "envVars"],
+    ...gates.map((gate) => [
+      gate.id,
+      gate.label,
+      gate.status,
+      gate.owner ?? "",
+      gate.detail,
+      gate.action ?? "",
+      gate.envVars?.join(" ") ?? ""
+    ])
   ];
 
   return rows.map((row) => row.map(csvCell).join(",")).join("\n");
