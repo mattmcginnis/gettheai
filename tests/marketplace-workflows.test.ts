@@ -3,6 +3,7 @@ import {
   createSearchAlert,
   createSupportCase,
   createWatchlistItem,
+  listNotificationEvents,
   verifyListingOwnership
 } from "@/lib/repository";
 
@@ -43,5 +44,9 @@ describe("marketplace workflow repository fallbacks", () => {
 
     expect(supportCase.status).toBe("open");
     expect(supportCase.aiDraftResponses.length).toBe(1);
+  });
+
+  it("returns an empty notification feed in local mode", async () => {
+    await expect(listNotificationEvents({ recipientEmail: "buyer@example.com" })).resolves.toEqual([]);
   });
 });

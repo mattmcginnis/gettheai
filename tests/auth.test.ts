@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { createMockSession, validatePassword, validateTwoFactorCode } from "@/lib/auth";
+import { createMockSession, hasRole, validatePassword, validateTwoFactorCode } from "@/lib/auth";
 
 describe("auth scaffolding", () => {
   it("enforces a stronger password policy", () => {
@@ -21,5 +21,24 @@ describe("auth scaffolding", () => {
 
     expect(session.verificationTier).toBe("two_factor");
     expect(session.twoFactorEnabled).toBe(true);
+  });
+
+  it("rejects seller role headers without 2FA once local fallback is explicit", async () => {
+    const originalFallback = process.env.ALLOW_LOCAL_AUTH_FALLBACK;
+    process.env.ALLOW_LOCAL_AUTH_FALLBACK = "true";
+
+    const request = new Request("https://getthe.local/seller", {
+      headers: {
+        "x-getthe-role": "buyer"
+      }
+    });
+
+    await expect(hasRole(request, ["seller"])).resolves.toBe(false);
+
+    if (originalFallback) {
+      process.env.ALLOW_LOCAL_AUTH_FALLBACK = originalFallback;
+    } else {
+      delete process.env.ALLOW_LOCAL_AUTH_FALLBACK;
+    }
   });
 });
