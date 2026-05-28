@@ -100,6 +100,14 @@ test("buyer can discover, appraise, watch, alert, and request support", async ({
     headers: { "x-getthe-role": "admin" }
   });
   expect(adminDetail.ok()).toBeTruthy();
+
+  await page.goto(`/transactions/${transactionBody.transaction.id}`);
+  await expect(page.getByRole("heading", { name: "Admin operations" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Sync escrow" })).toBeVisible();
+
+  await page.goto(`/admin/transactions/${transactionBody.transaction.id}`);
+  await expect(page.getByRole("heading", { name: `${targetListing.domain} transaction` })).toBeVisible();
+  await expect(page.getByText("statusTimeline")).toBeVisible();
 });
 
 test("seller/admin workflow creates listing, verifies ownership, scans, and drafts outreach", async ({ page, request }, testInfo) => {
@@ -172,4 +180,7 @@ test("seller/admin workflow creates listing, verifies ownership, scans, and draf
   });
   expect(outreach.ok()).toBeTruthy();
   expect((await outreach.json()).outreachDraft.requiresHumanApproval).toBe(true);
+
+  await page.goto(`/admin/listings/${listingBody.listing.id}`);
+  await expect(page.getByRole("heading", { name: listingBody.listing.domain })).toBeVisible();
 });

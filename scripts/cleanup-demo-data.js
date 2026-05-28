@@ -9,7 +9,11 @@ async function main() {
 
   const demoListings = await prisma.domainListing.findMany({
     where: {
-      OR: [{ domain: { startsWith: "workflow-smoke-" } }, { domain: { startsWith: "playwright-" } }]
+      OR: [
+        { domain: { startsWith: "workflow-smoke-" } },
+        { domain: { startsWith: "playwright-" } },
+        { domain: { startsWith: "staging-smoke-" } }
+      ]
     },
     select: { id: true, domain: true }
   });
@@ -28,6 +32,18 @@ async function main() {
         {
           email: {
             startsWith: "seller+",
+            endsWith: "@example.com"
+          }
+        },
+        {
+          email: {
+            startsWith: "buyer+staging-",
+            endsWith: "@example.com"
+          }
+        },
+        {
+          email: {
+            startsWith: "seller+staging-",
             endsWith: "@example.com"
           }
         }

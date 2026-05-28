@@ -103,6 +103,7 @@ DATABASE_URL="postgresql://getthe:getthe@localhost:55432/getthe" npm run prisma:
 DATABASE_URL="postgresql://getthe:getthe@localhost:55432/getthe" npm run prisma:seed
 DATABASE_URL="postgresql://getthe:getthe@localhost:55432/getthe" npm run db:smoke
 DATABASE_URL="postgresql://getthe:getthe@localhost:55432/getthe" npm run db:cleanup
+STAGING_BASE_URL="http://localhost:3000" npm run staging:smoke
 MEILISEARCH_HOST="http://localhost:7700" MEILISEARCH_API_KEY="getthe_dev_master_key" npm run dev
 ```
 
@@ -133,6 +134,12 @@ npm run preview:deploy
 ```
 
 CI runs in `.github/workflows/ci.yml` with Postgres, Meilisearch, Prisma migrations, unit tests, build, smoke data, cleanup, and Chromium Playwright coverage. Staging deploys use `.github/workflows/staging.yml` plus the checklist in [staging deployment](docs/staging-deployment.md).
+
+After a staging deploy, run:
+
+```bash
+STAGING_BASE_URL="https://staging.getthe.com" npm run staging:smoke
+```
 
 ## Production Integration Points
 

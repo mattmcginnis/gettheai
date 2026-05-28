@@ -44,6 +44,7 @@ Optional storage secrets:
 5. Confirm `npx prisma migrate deploy` runs before the Vercel build.
 6. Run `POST /admin/search/sync` after seed/import changes.
 7. Check `/api/health`, `/admin`, `/domains`, `/appraisal`, and one transaction detail page.
+8. Run `STAGING_BASE_URL="https://staging.getthe.com" npm run staging:smoke`.
 
 ## Acceptance
 
@@ -54,3 +55,4 @@ Optional storage secrets:
 - Escrow.com uses handoff mode or sandbox API credentials; GetThe does not hold funds.
 - Webhooks require HMAC signatures and fresh timestamps.
 - Admin detail pages open for users, listings, offers, transactions, support cases, and audit events.
+- `npm run staging:smoke` completes without errors against the staging URL.
