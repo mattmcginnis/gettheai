@@ -12,13 +12,15 @@ import { OfferManagementPanel } from "@/components/offer-management-panel";
 import { OwnershipVerificationPanel } from "@/components/ownership-verification-panel";
 import { OutreachWorkbench } from "@/components/outreach-workbench";
 import { SellerInventoryPanel } from "@/components/seller-inventory-panel";
+import { SellerListingEditor } from "@/components/seller-listing-editor";
 import { SupportWorkbench } from "@/components/support-workbench";
 import { requirePageRole } from "@/lib/page-auth";
 import {
   getFeaturedListings,
   getNotificationPreferences,
   listOfferInbox,
-  listSellerInventory
+  listSellerInventory,
+  listSellerListings
 } from "@/lib/repository";
 
 export const metadata: Metadata = {
@@ -33,9 +35,10 @@ export default async function SellerPage({
   const session = await requirePageRole(["seller", "admin"], "/seller");
   const params = await searchParams;
   const initialDomain = Array.isArray(params.domain) ? params.domain[0] : params.domain;
-  const [listings, inventory, offers, notificationPreferences] = await Promise.all([
+  const [listings, inventory, sellerListings, offers, notificationPreferences] = await Promise.all([
     getFeaturedListings(3),
     listSellerInventory({ email: session.email, role: session.role }),
+    listSellerListings({ email: session.email, role: session.role }),
     listOfferInbox({ email: session.email, role: session.role === "admin" ? "admin" : "seller" }),
     getNotificationPreferences(session.email)
   ]);
@@ -66,6 +69,7 @@ export default async function SellerPage({
       <section className="pb-12">
         <div className="shell grid gap-6 lg:grid-cols-2">
           <SellerInventoryPanel inventory={inventory} />
+          <SellerListingEditor listings={sellerListings} />
           <OfferInbox offers={offers} title="Seller offer inbox" empty="No buyer offers yet." />
           <ListingWorkbench initialDomain={initialDomain ?? "clearledger.com"} />
           <AppraisalWorkbench initialDomain={initialDomain ?? "clearledger.com"} />

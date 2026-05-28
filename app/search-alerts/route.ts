@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { hasRole } from "@/lib/auth";
+import { getRequestAuthContext, hasRole } from "@/lib/auth";
 import { createSearchAlert } from "@/lib/repository";
 
 const schema = z.object({
@@ -16,7 +16,16 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    return NextResponse.json({ searchAlert: await createSearchAlert(schema.parse(await request.json())) }, { status: 201 });
+    const session = await getRequestAuthContext(request);
+    if (!session) {
+      return NextResponse.json({ error: "Authentication required." }, { status: 401 });
+    }
+
+    const body = schema.parse(await request.json());
+    return NextResponse.json(
+      { searchAlert: await createSearchAlert({ ...body, userEmail: session.email }) },
+      { status: 201 }
+    );
   } catch (error) {
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Search alert creation failed." },

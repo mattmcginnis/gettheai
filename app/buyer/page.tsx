@@ -10,7 +10,13 @@ import { OfferInbox } from "@/components/offer-inbox";
 import { SupportWorkbench } from "@/components/support-workbench";
 import { TransactionTimeline } from "@/components/transaction-timeline";
 import { requirePageRole } from "@/lib/page-auth";
-import { getFeaturedListings, getNotificationPreferences, listOfferInbox } from "@/lib/repository";
+import {
+  getFeaturedListings,
+  getNotificationPreferences,
+  listOfferInbox,
+  listSearchAlerts,
+  listWatchlistItems
+} from "@/lib/repository";
 
 export const metadata: Metadata = {
   title: "Buyer Desk"
@@ -18,9 +24,11 @@ export const metadata: Metadata = {
 
 export default async function BuyerPage() {
   const session = await requirePageRole(["buyer", "seller", "admin"], "/buyer");
-  const [listings, offers, notificationPreferences] = await Promise.all([
+  const [listings, offers, watchlist, searchAlerts, notificationPreferences] = await Promise.all([
     getFeaturedListings(2),
     listOfferInbox({ email: session.email, role: session.role === "admin" ? "admin" : "buyer" }),
+    listWatchlistItems({ userEmail: session.email }),
+    listSearchAlerts({ userEmail: session.email }),
     getNotificationPreferences(session.email)
   ]);
   const openOffers = offers.filter((offer) => offer.status === "pending" || offer.status === "countered").length;
@@ -36,14 +44,17 @@ export default async function BuyerPage() {
               tracking for founders and operators buying mid-tier names.
             </p>
           </div>
-          <ButtonLink href="/domains">Search inventory</ButtonLink>
+          <div className="flex flex-wrap gap-3">
+            <ButtonLink href="/buyer/watchlist">Manage alerts</ButtonLink>
+            <ButtonLink href="/domains">Search inventory</ButtonLink>
+          </div>
         </div>
       </section>
 
       <section className="py-8">
         <div className="shell grid gap-4 md:grid-cols-3">
           <MetricCard label="Verification" value={session.twoFactorEnabled ? "2FA" : "Email"} detail="Offer limits follow verification tier." icon={<ShieldCheck size={20} />} />
-          <MetricCard label="Watchlist" value="4" detail="Saved domains and price alerts." icon={<BookmarkCheck size={20} />} />
+          <MetricCard label="Watchlist" value={String(watchlist.length)} detail={`${searchAlerts.length} saved search alerts.`} icon={<BookmarkCheck size={20} />} />
           <MetricCard label="Open offers" value={String(openOffers)} detail="Pending or countered seller responses." icon={<Bell size={20} />} />
         </div>
       </section>

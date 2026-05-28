@@ -106,9 +106,17 @@ const localListingStatusOverrides = ((globalThis as typeof globalThis & {
   __gettheLocalListingStatusOverrides?: Map<string, DomainListing["status"]>;
 }).__gettheLocalListingStatusOverrides ??= new Map<string, DomainListing["status"]>());
 
+const localListingDetailOverrides = ((globalThis as typeof globalThis & {
+  __gettheLocalListingDetailOverrides?: Map<string, Partial<DomainListing>>;
+}).__gettheLocalListingDetailOverrides ??= new Map<string, Partial<DomainListing>>());
+
 const localOffers = ((globalThis as typeof globalThis & {
   __gettheLocalOffers?: OfferInboxItem[];
 }).__gettheLocalOffers ??= []);
+
+const localWatchlistItems = ((globalThis as typeof globalThis & {
+  __gettheLocalWatchlistItems?: WatchlistItem[];
+}).__gettheLocalWatchlistItems ??= []);
 
 const localSearchAlerts = ((globalThis as typeof globalThis & {
   __gettheLocalSearchAlerts?: SearchAlertItem[];
@@ -560,6 +568,23 @@ export async function listSellerInventory(input: {
   }));
 }
 
+export async function listSellerListings(input: {
+  email: string;
+  role?: "seller" | "admin" | "buyer";
+}): Promise<DomainListing[]> {
+  if (!isDatabaseConfigured()) {
+    return getLocalListings();
+  }
+
+  const rows = await getPrisma().domainListing.findMany({
+    where: input.role === "admin" ? {} : { seller: { email: input.email.toLowerCase() } },
+    include: listingInclude(),
+    orderBy: { updatedAt: "desc" }
+  });
+
+  return rows.map(mapListing);
+}
+
 export async function updateSellerListingStatus(input: {
   listingId: string;
   status: "draft" | "active" | "archived";
@@ -624,6 +649,214 @@ export async function updateSellerListingStatus(input: {
   };
 }
 
+export async function updateSellerListingDetails(input: {
+  listingId: string;
+  actorEmail: string;
+  actorRole: "seller" | "admin";
+  price: number;
+  minimumOffer?: number;
+  registrar?: string;
+  category: string;
+  listingType: ListingType;
+  description: string;
+  trafficMonthly?: number;
+  domainAgeYears?: number;
+  seoTitle: string;
+  seoDescription: string;
+}) {
+  if (input.price <= 0) {
+    throw new Error("Price must be positive.");
+  }
+
+  if (input.minimumOffer && input.minimumOffer <= 0) {
+    throw new Error("Minimum offer must be positive.");
+  }
+
+  const listing = await getMarketplaceListing(input.listingId);
+  if (!listing) {
+    throw new Error("Listing not found.");
+  }
+
+  if (!isDatabaseConfigured()) {
+    const nextListing: DomainListing = {
+      ...listing,
+      price: input.price,
+      minimumOffer: input.minimumOffer ?? listing.minimumOffer,
+      registrar: input.registrar ?? listing.registrar,
+      category: input.category,
+      listingType: input.listingType,
+      description: input.description,
+      trafficMonthly: input.trafficMonthly ?? listing.trafficMonthly,
+      domainAgeYears: input.domainAgeYears ?? listing.domainAgeYears,
+      seoTitle: input.seoTitle,
+      seoDescription: input.seoDescription
+    };
+    localListingDetailOverrides.set(listing.id, nextListing);
+
+    return {
+      action: "seller_listing_update",
+      listing: nextListing,
+      mode: "local"
+    };
+  }
+
+  const row = await getPrismaListingByIdOrDomain(input.listingId);
+  if (!row) {
+    throw new Error("Listing not found.");
+  }
+
+  if (input.actorRole !== "admin" && row.seller.email.toLowerCase() !== input.actorEmail.toLowerCase()) {
+    throw new Error("Only the seller of record can update this listing.");
+  }
+
+  const updated = await getPrisma().domainListing.update({
+    where: { id: row.id },
+    data: {
+      registrar: input.registrar,
+      category: input.category,
+      listingType: mapListingTypeToPrisma(input.listingType),
+      priceCents: dollarsToCents(input.price),
+      minimumOfferCents: dollarsToCents(input.minimumOffer ?? input.price),
+      description: input.description,
+      trafficMonthly: Math.max(0, Math.trunc(input.trafficMonthly ?? 0)),
+      domainAgeYears: Math.max(0, Math.trunc(input.domainAgeYears ?? 0)),
+      seoTitle: input.seoTitle,
+      seoDescription: input.seoDescription
+    },
+    include: listingInclude()
+  });
+
+  await createAdminAudit({
+    actorEmail: input.actorRole === "admin" ? input.actorEmail : undefined,
+    eventType: input.actorRole === "admin" ? "admin.listing.details.updated" : "seller.listing.details.updated",
+    entityType: "domain_listing",
+    entityId: row.id,
+    metadata: {
+      domain: row.domain,
+      actorEmail: input.actorEmail,
+      price: input.price,
+      listingType: input.listingType
+    }
+  });
+
+  return {
+    action: "seller_listing_update",
+    listing: mapListing(updated),
+    mode: "database"
+  };
+}
+
+export async function deleteSellerListing(input: {
+  listingId: string;
+  actorEmail: string;
+  actorRole: "seller" | "admin";
+}) {
+  const listing = await getMarketplaceListing(input.listingId);
+  if (!listing) {
+    throw new Error("Listing not found.");
+  }
+
+  if (!isDatabaseConfigured()) {
+    const draftIndex = localDraftListings.findIndex((item) => item.id === listing.id);
+    if (draftIndex >= 0) {
+      localDraftListings.splice(draftIndex, 1);
+      localListingDetailOverrides.delete(listing.id);
+      localListingStatusOverrides.delete(listing.id);
+      return {
+        action: "seller_listing_delete",
+        listingId: listing.id,
+        deleted: true,
+        archived: false,
+        mode: "local"
+      };
+    }
+
+    localListingStatusOverrides.set(listing.id, "archived");
+    return {
+      action: "seller_listing_delete",
+      listingId: listing.id,
+      deleted: false,
+      archived: true,
+      mode: "local"
+    };
+  }
+
+  const prisma = getPrisma();
+  const row = await prisma.domainListing.findFirst({
+    where: {
+      OR: [{ id: input.listingId }, { domain: normalizeDomain(input.listingId) }]
+    },
+    include: {
+      seller: true,
+      _count: {
+        select: {
+          offers: true,
+          transactions: true
+        }
+      }
+    }
+  });
+  if (!row) {
+    throw new Error("Listing not found.");
+  }
+
+  if (input.actorRole !== "admin" && row.seller.email.toLowerCase() !== input.actorEmail.toLowerCase()) {
+    throw new Error("Only the seller of record can delete this listing.");
+  }
+
+  if (row._count.offers || row._count.transactions) {
+    await prisma.domainListing.update({
+      where: { id: row.id },
+      data: { status: PrismaListingStatus.ARCHIVED }
+    });
+    await createAdminAudit({
+      actorEmail: input.actorRole === "admin" ? input.actorEmail : undefined,
+      eventType: "seller.listing.archived_for_history",
+      entityType: "domain_listing",
+      entityId: row.id,
+      metadata: {
+        domain: row.domain,
+        actorEmail: input.actorEmail,
+        offers: row._count.offers,
+        transactions: row._count.transactions
+      }
+    });
+
+    return {
+      action: "seller_listing_delete",
+      listingId: row.id,
+      deleted: false,
+      archived: true,
+      mode: "database"
+    };
+  }
+
+  await prisma.$transaction([
+    prisma.watchlist.deleteMany({ where: { listingId: row.id } }),
+    prisma.appraisal.deleteMany({ where: { listingId: row.id } }),
+    prisma.domainListing.delete({ where: { id: row.id } })
+  ]);
+
+  await createAdminAudit({
+    actorEmail: input.actorRole === "admin" ? input.actorEmail : undefined,
+    eventType: input.actorRole === "admin" ? "admin.listing.deleted" : "seller.listing.deleted",
+    entityType: "domain_listing",
+    entityId: row.id,
+    metadata: {
+      domain: row.domain,
+      actorEmail: input.actorEmail
+    }
+  });
+
+  return {
+    action: "seller_listing_delete",
+    listingId: row.id,
+    deleted: true,
+    archived: false,
+    mode: "database"
+  };
+}
+
 export async function createOfferRecord(input: {
   listingId: string;
   buyerEmail: string;
@@ -675,6 +908,7 @@ export async function createOfferRecord(input: {
       domain: listing.domain,
       listingId: listing.id,
       buyerEmail: input.buyerEmail.toLowerCase(),
+      sellerEmail: localSellerEmail(listing),
       sellerName: listing.seller.publicName,
       amount: offer.amount,
       status: offer.status,
@@ -793,6 +1027,66 @@ export async function listOfferInbox(input: {
   });
 
   return rows.map(mapOfferInbox);
+}
+
+export async function getListingNotificationContext(listingId: string) {
+  const listing = await getMarketplaceListing(listingId);
+  if (!listing) {
+    throw new Error("Listing not found.");
+  }
+
+  if (!isDatabaseConfigured()) {
+    return {
+      listingId: listing.id,
+      domain: listing.domain,
+      sellerEmail: localSellerEmail(listing),
+      sellerName: listing.seller.publicName
+    };
+  }
+
+  const row = await getPrismaListingByIdOrDomain(listingId);
+  if (!row) {
+    throw new Error("Listing not found.");
+  }
+
+  return {
+    listingId: row.id,
+    domain: row.domain,
+    sellerEmail: row.seller.email,
+    sellerName: row.seller.sellerProfile?.publicName ?? row.seller.displayName ?? row.seller.email
+  };
+}
+
+export async function getOfferNotificationContext(offerId: string) {
+  if (!isDatabaseConfigured()) {
+    const offer = localOffers.find((item) => item.id === offerId);
+    if (!offer) {
+      return null;
+    }
+
+    return {
+      offerId: offer.id,
+      listingId: offer.listingId,
+      domain: offer.domain,
+      buyerEmail: offer.buyerEmail,
+      sellerEmail: offer.sellerEmail,
+      sellerName: offer.sellerName
+    };
+  }
+
+  const offer = await getPrismaOfferById(offerId);
+  if (!offer) {
+    return null;
+  }
+
+  return {
+    offerId: offer.id,
+    listingId: offer.listingId,
+    domain: offer.listing.domain,
+    buyerEmail: offer.buyer.email,
+    sellerEmail: offer.listing.seller.email,
+    sellerName: offer.listing.seller.sellerProfile?.publicName ?? offer.listing.seller.displayName ?? offer.listing.seller.email
+  };
 }
 
 export async function createTransactionRecord(input: {
@@ -1190,13 +1484,22 @@ export async function createWatchlistItem(input: {
 
   const createdAt = new Date().toISOString();
   if (!isDatabaseConfigured()) {
-    return {
+    const existing = localWatchlistItems.find(
+      (item) => item.userEmail.toLowerCase() === input.userEmail.toLowerCase() && item.listingId === listing.id
+    );
+    if (existing) {
+      return existing;
+    }
+
+    const item = {
       id: `watch_${Date.now()}`,
-      userEmail: input.userEmail,
+      userEmail: input.userEmail.toLowerCase(),
       listingId: listing.id,
       domain: listing.domain,
       createdAt
     };
+    localWatchlistItems.unshift(item);
+    return { ...item };
   }
 
   const user = await ensureUser(input.userEmail, "BUYER");
@@ -1227,6 +1530,75 @@ export async function createWatchlistItem(input: {
   };
 }
 
+export async function listWatchlistItems(input: { userEmail: string }): Promise<WatchlistItem[]> {
+  if (!isDatabaseConfigured()) {
+    return localWatchlistItems
+      .filter((item) => item.userEmail.toLowerCase() === input.userEmail.toLowerCase())
+      .map((item) => ({ ...item }))
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  }
+
+  const rows = await getPrisma().watchlist.findMany({
+    where: {
+      user: {
+        email: input.userEmail.toLowerCase()
+      }
+    },
+    include: {
+      user: true,
+      listing: true
+    },
+    orderBy: { createdAt: "desc" }
+  });
+
+  return rows.map((row) => ({
+    id: row.id,
+    userEmail: row.user.email,
+    listingId: row.listingId,
+    domain: row.listing.domain,
+    createdAt: row.createdAt.toISOString()
+  }));
+}
+
+export async function deleteWatchlistItem(input: { id: string; userEmail: string }) {
+  if (!isDatabaseConfigured()) {
+    const index = localWatchlistItems.findIndex(
+      (item) => item.id === input.id && item.userEmail.toLowerCase() === input.userEmail.toLowerCase()
+    );
+    if (index >= 0) {
+      localWatchlistItems.splice(index, 1);
+    }
+
+    return {
+      action: "watchlist_delete",
+      id: input.id,
+      deleted: index >= 0,
+      mode: "local"
+    };
+  }
+
+  const row = await getPrisma().watchlist.findFirst({
+    where: {
+      id: input.id,
+      user: {
+        email: input.userEmail.toLowerCase()
+      }
+    }
+  });
+
+  if (!row) {
+    throw new Error("Watchlist item not found.");
+  }
+
+  await getPrisma().watchlist.delete({ where: { id: row.id } });
+  return {
+    action: "watchlist_delete",
+    id: row.id,
+    deleted: true,
+    mode: "database"
+  };
+}
+
 export async function createSearchAlert(input: {
   userEmail: string;
   name: string;
@@ -1245,7 +1617,7 @@ export async function createSearchAlert(input: {
       createdAt
     };
     localSearchAlerts.unshift(alert);
-    return alert;
+    return { ...alert };
   }
 
   const user = await ensureUser(input.userEmail, "BUYER");
@@ -1270,6 +1642,132 @@ export async function createSearchAlert(input: {
     cadence: row.cadence as SearchAlertItem["cadence"],
     active: row.active,
     createdAt: row.createdAt.toISOString()
+  };
+}
+
+export async function listSearchAlerts(input: { userEmail: string }): Promise<SearchAlertItem[]> {
+  if (!isDatabaseConfigured()) {
+    return localSearchAlerts
+      .filter((alert) => alert.userEmail.toLowerCase() === input.userEmail.toLowerCase())
+      .map((alert) => ({ ...alert }))
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  }
+
+  const rows = await getPrisma().searchAlert.findMany({
+    where: {
+      user: {
+        email: input.userEmail.toLowerCase()
+      }
+    },
+    include: {
+      user: true
+    },
+    orderBy: { updatedAt: "desc" }
+  });
+
+  return rows.map((row) => ({
+    id: row.id,
+    userEmail: row.user.email,
+    name: row.name,
+    filters: row.filters as DomainFilters,
+    cadence: row.cadence as SearchAlertItem["cadence"],
+    active: row.active,
+    createdAt: row.createdAt.toISOString()
+  }));
+}
+
+export async function updateSearchAlert(input: {
+  id: string;
+  userEmail: string;
+  name?: string;
+  cadence?: SearchAlertItem["cadence"];
+  active?: boolean;
+}) {
+  if (!isDatabaseConfigured()) {
+    const alert = localSearchAlerts.find(
+      (item) => item.id === input.id && item.userEmail.toLowerCase() === input.userEmail.toLowerCase()
+    );
+    if (!alert) {
+      throw new Error("Search alert not found.");
+    }
+
+    alert.name = input.name ?? alert.name;
+    alert.cadence = input.cadence ?? alert.cadence;
+    alert.active = input.active ?? alert.active;
+    return { ...alert };
+  }
+
+  const existing = await getPrisma().searchAlert.findFirst({
+    where: {
+      id: input.id,
+      user: {
+        email: input.userEmail.toLowerCase()
+      }
+    },
+    include: { user: true }
+  });
+
+  if (!existing) {
+    throw new Error("Search alert not found.");
+  }
+
+  const row = await getPrisma().searchAlert.update({
+    where: { id: existing.id },
+    data: {
+      name: input.name ?? existing.name,
+      cadence: input.cadence ?? existing.cadence,
+      active: input.active ?? existing.active
+    },
+    include: { user: true }
+  });
+
+  return {
+    id: row.id,
+    userEmail: row.user.email,
+    name: row.name,
+    filters: row.filters as DomainFilters,
+    cadence: row.cadence as SearchAlertItem["cadence"],
+    active: row.active,
+    createdAt: row.createdAt.toISOString()
+  };
+}
+
+export async function deleteSearchAlert(input: { id: string; userEmail: string }) {
+  if (!isDatabaseConfigured()) {
+    const index = localSearchAlerts.findIndex(
+      (item) => item.id === input.id && item.userEmail.toLowerCase() === input.userEmail.toLowerCase()
+    );
+    if (index >= 0) {
+      localSearchAlerts.splice(index, 1);
+    }
+
+    return {
+      action: "search_alert_delete",
+      id: input.id,
+      deleted: index >= 0,
+      mode: "local"
+    };
+  }
+
+  const row = await getPrisma().searchAlert.findFirst({
+    where: {
+      id: input.id,
+      user: {
+        email: input.userEmail.toLowerCase()
+      }
+    }
+  });
+
+  if (!row) {
+    throw new Error("Search alert not found.");
+  }
+
+  await getPrisma().searchAlert.delete({ where: { id: row.id } });
+  return {
+    action: "search_alert_delete",
+    id: row.id,
+    deleted: true,
+    mode: "database"
   };
 }
 
@@ -2494,8 +2992,24 @@ function applyLocalListingOverride(listing: DomainListing | null | undefined) {
     return null;
   }
 
+  const details = localListingDetailOverrides.get(listing.id) ?? {};
   const status = localListingStatusOverrides.get(listing.id);
-  return status ? { ...listing, status } : listing;
+  return {
+    ...listing,
+    ...details,
+    status: status ?? details.status ?? listing.status
+  };
+}
+
+function localSellerEmail(listing: DomainListing) {
+  const sellerEmails: Record<string, string> = {
+    "seller-1": "northstar@getthe.com",
+    "seller-2": "civic@getthe.com",
+    "seller-3": "ai-holdings@getthe.com",
+    "seller-local": "seller@getthe.com"
+  };
+
+  return sellerEmails[listing.seller.id] ?? `${listing.seller.slug}@seller.getthe.com`;
 }
 
 function isOpenOfferStatus(status: Offer["status"]) {
@@ -2728,6 +3242,7 @@ function mapOfferInbox(row: NonNullable<PrismaOffer>): OfferInboxItem {
     domain: row.listing.domain,
     listingId: row.listingId,
     buyerEmail: row.buyer.email,
+    sellerEmail: row.listing.seller.email,
     sellerName: row.listing.seller.sellerProfile?.publicName ?? row.listing.seller.displayName ?? row.listing.seller.email,
     amount: centsToDollars(row.amountCents),
     status: row.status.toLowerCase() as Offer["status"],
@@ -2789,6 +3304,16 @@ function mapListingStatusToPrisma(status: DomainListing["status"]) {
   };
 
   return map[status];
+}
+
+function mapListingTypeToPrisma(listingType: ListingType) {
+  const map = {
+    buy_now: "BUY_NOW",
+    make_offer: "MAKE_OFFER",
+    buy_now_and_offer: "BUY_NOW_AND_OFFER"
+  } as const;
+
+  return map[listingType];
 }
 
 function mapSupportStatusToPrisma(status: SupportCaseItem["status"]) {

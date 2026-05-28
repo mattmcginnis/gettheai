@@ -4,11 +4,16 @@ import {
   createSearchAlert,
   createSupportCase,
   createWatchlistItem,
+  deleteSearchAlert,
+  deleteWatchlistItem,
   deliverSearchAlerts,
   getNotificationPreferences,
   listOfferInbox,
   listNotificationEvents,
+  listSearchAlerts,
   listSellerInventory,
+  listWatchlistItems,
+  updateSearchAlert,
   updateNotificationPreferences,
   verifyListingOwnership
 } from "@/lib/repository";
@@ -50,18 +55,32 @@ describe("marketplace workflow repository fallbacks", () => {
 
   it("creates buyer watchlists and alerts in local mode", async () => {
     const watch = await createWatchlistItem({
-      userEmail: "buyer@example.com",
+      userEmail: "buyer-watch@example.com",
       listingId: "dom-1"
     });
     const alert = await createSearchAlert({
-      userEmail: "buyer@example.com",
+      userEmail: "buyer-watch@example.com",
       name: "AI names",
       filters: { q: "ai" },
       cadence: "weekly"
     });
+    const savedWatchlist = await listWatchlistItems({ userEmail: "buyer-watch@example.com" });
+    const savedAlerts = await listSearchAlerts({ userEmail: "buyer-watch@example.com" });
+    const updatedAlert = await updateSearchAlert({
+      id: alert.id,
+      userEmail: "buyer-watch@example.com",
+      active: false
+    });
+    const deletedWatch = await deleteWatchlistItem({ id: watch.id, userEmail: "buyer-watch@example.com" });
+    const deletedAlert = await deleteSearchAlert({ id: alert.id, userEmail: "buyer-watch@example.com" });
 
     expect(watch.domain).toBe("atlasforge.com");
     expect(alert.active).toBe(true);
+    expect(savedWatchlist.length).toBe(1);
+    expect(savedAlerts.length).toBe(1);
+    expect(updatedAlert.active).toBe(false);
+    expect(deletedWatch.deleted).toBe(true);
+    expect(deletedAlert.deleted).toBe(true);
   });
 
   it("creates support cases with an AI draft in local mode", async () => {

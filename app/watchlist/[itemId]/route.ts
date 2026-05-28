@@ -1,14 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
-import { z } from "zod";
 import { getRequestAuthContext, hasRole } from "@/lib/auth";
-import { createWatchlistItem } from "@/lib/repository";
+import { deleteWatchlistItem } from "@/lib/repository";
 
-const schema = z.object({
-  userEmail: z.string().email(),
-  listingId: z.string()
-});
-
-export async function POST(request: NextRequest) {
+export async function DELETE(
+  request: NextRequest,
+  { params }: { params: Promise<{ itemId: string }> }
+) {
   if (!(await hasRole(request, ["buyer", "seller", "admin"]))) {
     return NextResponse.json({ error: "Signed-in user required." }, { status: 403 });
   }
@@ -19,14 +16,11 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Authentication required." }, { status: 401 });
     }
 
-    const body = schema.parse(await request.json());
-    return NextResponse.json(
-      { watchlistItem: await createWatchlistItem({ ...body, userEmail: session.email }) },
-      { status: 201 }
-    );
+    const { itemId } = await params;
+    return NextResponse.json(await deleteWatchlistItem({ id: itemId, userEmail: session.email }));
   } catch (error) {
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : "Watchlist update failed." },
+      { error: error instanceof Error ? error.message : "Watchlist delete failed." },
       { status: 400 }
     );
   }

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { createOfferRecord } from "@/lib/repository";
+import { createOfferRecord, getListingNotificationContext } from "@/lib/repository";
 import { sendMarketplaceNotification } from "@/lib/notifications";
 
 const schema = z.object({
@@ -14,16 +14,33 @@ export async function POST(request: NextRequest) {
   try {
     const body = schema.parse(await request.json());
     const offer = await createOfferRecord(body);
+    const listing = await getListingNotificationContext(body.listingId);
+
     await sendMarketplaceNotification({
       to: body.buyerEmail,
-      subject: "GetThe offer received",
-      textBody: `Your offer for listing ${body.listingId} was recorded and is pending seller review.`,
+      subject: `GetThe offer received for ${listing.domain}`,
+      textBody: `Your offer for ${listing.domain} was recorded and is pending seller review.`,
       tag: "offer-created",
       entityType: "offer",
       entityId: offer.id,
       recipientRole: "buyer",
       metadata: {
         listingId: body.listingId,
+        amount: body.amount
+      }
+    });
+    await sendMarketplaceNotification({
+      to: listing.sellerEmail,
+      subject: `New GetThe offer on ${listing.domain}`,
+      textBody: `${body.buyerEmail} offered $${body.amount.toLocaleString("en-US")} for ${listing.domain}. Review it from the seller dashboard.`,
+      tag: "seller-offer-created",
+      entityType: "offer",
+      entityId: offer.id,
+      recipientRole: "seller",
+      metadata: {
+        listingId: listing.listingId,
+        domain: listing.domain,
+        buyerEmail: body.buyerEmail,
         amount: body.amount
       }
     });

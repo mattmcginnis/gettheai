@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { hasRole } from "@/lib/auth";
 import { sendMarketplaceNotification } from "@/lib/notifications";
-import { decideOffer } from "@/lib/repository";
+import { decideOffer, getOfferNotificationContext } from "@/lib/repository";
 
 const schema = z.object({
   action: z.enum(["accept", "reject", "counter"]),
@@ -21,21 +21,43 @@ export async function POST(
   try {
     const { offerId } = await params;
     const body = schema.parse(await request.json());
+    const context = await getOfferNotificationContext(offerId);
     const result = await decideOffer({ offerId, ...body });
     const offer = "offer" in result ? result.offer : null;
+    const status = offer?.status ?? ("status" in result ? result.status : body.action);
+    const buyerEmail = offer?.buyerEmail ?? context?.buyerEmail;
+    const domain = context?.domain ?? offer?.listingId ?? "the listing";
+    const sellerEmail = context?.sellerEmail;
 
-    if (offer?.buyerEmail) {
+    if (buyerEmail) {
       await sendMarketplaceNotification({
-        to: offer.buyerEmail,
-        subject: `GetThe offer ${offer.status.replaceAll("_", " ")}`,
-        textBody: `Your offer for listing ${offer.listingId} is now ${offer.status}. Seller note: ${body.note}`,
-        tag: `offer-${offer.status}`,
+        to: buyerEmail,
+        subject: `GetThe offer ${status}`,
+        textBody: `Your offer for ${domain} is now ${status}. Seller note: ${body.note}`,
+        tag: `offer-${status}`,
         entityType: "offer",
-        entityId: offer.id,
+        entityId: offer?.id ?? offerId,
         recipientRole: "buyer",
         metadata: {
           action: body.action,
-          amount: offer.amount,
+          amount: offer?.amount ?? result.amount,
+          transactionId: result.transaction?.id
+        }
+      });
+    }
+
+    if (sellerEmail) {
+      await sendMarketplaceNotification({
+        to: sellerEmail,
+        subject: `Seller action recorded for ${domain}`,
+        textBody: `Your ${body.action} decision for ${domain} was recorded. Note: ${body.note}`,
+        tag: `seller-offer-${body.action}`,
+        entityType: "offer",
+        entityId: offer?.id ?? offerId,
+        recipientRole: "seller",
+        metadata: {
+          action: body.action,
+          amount: offer?.amount ?? result.amount,
           transactionId: result.transaction?.id
         }
       });

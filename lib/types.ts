@@ -227,6 +227,7 @@ export interface OfferInboxItem {
   domain: string;
   listingId: string;
   buyerEmail: string;
+  sellerEmail: string;
   sellerName: string;
   amount: number;
   status: OfferStatus;

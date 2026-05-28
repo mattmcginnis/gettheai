@@ -5,7 +5,10 @@ import {
   adminUpdateListingStatus,
   adminUpdateSupportCase,
   adminVerifySeller,
+  createListingDraft,
+  deleteSellerListing,
   retryTransactionEscrowHandoff,
+  updateSellerListingDetails,
   updateSellerListingStatus,
   updateTransactionOperations
 } from "@/lib/repository";
@@ -58,6 +61,52 @@ describe("admin workflow fallbacks", () => {
       status: "active",
       actorEmail: "seller@example.com",
       actorRole: "seller"
+    });
+  });
+
+  it("lets sellers edit and delete draft listing details in local mode", async () => {
+    const listing = await createListingDraft({
+      domain: "crud-example.com",
+      price: 1400,
+      minimumOffer: 900,
+      registrar: "Namecheap",
+      category: "SaaS",
+      sellerEmail: "seller@example.com"
+    });
+    const updated = await updateSellerListingDetails({
+      listingId: listing.id,
+      actorEmail: "seller@example.com",
+      actorRole: "seller",
+      price: 1800,
+      minimumOffer: 1200,
+      registrar: "Cloudflare",
+      category: "Developer Tools",
+      listingType: "buy_now_and_offer",
+      description: "A practical two-word domain for developer tooling and infrastructure teams.",
+      trafficMonthly: 25,
+      domainAgeYears: 2,
+      seoTitle: "CrudExample.com is for sale",
+      seoDescription: "Acquire CrudExample.com through GetThe with transparent escrow handoff."
+    });
+    const deleted = await deleteSellerListing({
+      listingId: listing.id,
+      actorEmail: "seller@example.com",
+      actorRole: "seller"
+    });
+
+    expect(updated).toMatchObject({
+      action: "seller_listing_update",
+      listing: {
+        price: 1800,
+        registrar: "Cloudflare",
+        category: "Developer Tools"
+      },
+      mode: "local"
+    });
+    expect(deleted).toMatchObject({
+      action: "seller_listing_delete",
+      deleted: true,
+      mode: "local"
     });
   });
 
