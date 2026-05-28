@@ -132,10 +132,10 @@ test("seller/admin workflow creates listing, verifies ownership, scans, and draf
   const listingBody = await listing.json();
 
   const verification = await request.post(`/listings/${listingBody.listing.id}/verify`, {
-    headers: { "x-getthe-role": "seller" },
+    headers: { "x-getthe-role": "admin" },
     data: {
       method: "manual",
-      actorEmail: "seller@getthe.com"
+      actorEmail: "admin@getthe.com"
     }
   });
   expect(verification.ok()).toBeTruthy();

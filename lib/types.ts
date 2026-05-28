@@ -97,6 +97,35 @@ export interface DomainFilters {
   sort?: "featured" | "price_asc" | "price_desc" | "newest" | "confidence";
 }
 
+export interface DomainPagination {
+  page: number;
+  limit: number;
+  total: number;
+  totalPages: number;
+  hasNextPage: boolean;
+  hasPreviousPage: boolean;
+}
+
+export interface DomainFacetValue {
+  value: string;
+  label: string;
+  count: number;
+}
+
+export interface DomainFacets {
+  tlds: DomainFacetValue[];
+  categories: DomainFacetValue[];
+  listingTypes: DomainFacetValue[];
+  priceBands: DomainFacetValue[];
+}
+
+export interface DomainSearchResult {
+  results: DomainListing[];
+  filters: DomainFilters;
+  pagination: DomainPagination;
+  facets: DomainFacets;
+}
+
 export interface Offer {
   id: string;
   listingId: string;
@@ -120,8 +149,8 @@ export interface Transaction {
   buyerEmail: string;
   sellerId: string;
   escrowProvider: "escrow.com";
-  escrowId: string;
-  escrowUrl: string;
+  escrowId?: string;
+  escrowUrl?: string;
   amount: number;
   commission: number;
   status: TransactionStatus;

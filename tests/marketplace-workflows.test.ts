@@ -6,6 +6,7 @@ import {
   listNotificationEvents,
   verifyListingOwnership
 } from "@/lib/repository";
+import { verifyOwnershipChallenge } from "@/lib/ownership-verification";
 
 describe("marketplace workflow repository fallbacks", () => {
   it("verifies listing ownership in local mode", async () => {
@@ -48,5 +49,18 @@ describe("marketplace workflow repository fallbacks", () => {
 
   it("returns an empty notification feed in local mode", async () => {
     await expect(listNotificationEvents({ recipientEmail: "buyer@example.com" })).resolves.toEqual([]);
+  });
+
+  it("keeps manual ownership verification admin-only", async () => {
+    await expect(
+      verifyOwnershipChallenge({
+        domain: "example.com",
+        method: "manual",
+        actorRole: "seller"
+      })
+    ).resolves.toMatchObject({
+      verified: false,
+      reason: "Manual verification requires an admin reviewer."
+    });
   });
 });

@@ -7,7 +7,8 @@ import {
   adminCancelOffer,
   adminUpdateListingStatus,
   adminUpdateSupportCase,
-  adminVerifySeller
+  adminVerifySeller,
+  retryTransactionEscrowHandoff
 } from "@/lib/repository";
 
 const actionSchema = z.discriminatedUnion("action", [
@@ -44,6 +45,12 @@ const actionSchema = z.discriminatedUnion("action", [
     transactionId: z.string().min(1),
     actorEmail: z.string().email().optional(),
     note: z.string().min(3)
+  }),
+  z.object({
+    action: z.literal("transaction_handoff_retry"),
+    transactionId: z.string().min(1),
+    actorEmail: z.string().email().optional(),
+    note: z.string().optional()
   })
 ]);
 
@@ -104,6 +111,26 @@ export async function POST(request: NextRequest) {
           entityId: supportCase.id,
           recipientRole: "support",
           metadata: { status: supportCase.status }
+        });
+      }
+      return NextResponse.json(result);
+    }
+
+    if (body.action === "transaction_handoff_retry") {
+      const result = await retryTransactionEscrowHandoff(body);
+      const transaction = "transaction" in result ? result.transaction : null;
+      if (transaction?.buyerEmail) {
+        await sendMarketplaceNotification({
+          to: transaction.buyerEmail,
+          subject: "GetThe Escrow.com handoff recreated",
+          textBody: transaction.escrowUrl
+            ? `A new Escrow.com handoff is ready for transaction ${transaction.id}: ${transaction.escrowUrl}`
+            : `Escrow.com handoff recovery was attempted for transaction ${transaction.id}.`,
+          tag: "transaction-handoff-retried",
+          entityType: "transaction",
+          entityId: transaction.id,
+          recipientRole: "buyer",
+          metadata: { escrowId: transaction.escrowId }
         });
       }
       return NextResponse.json(result);

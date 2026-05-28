@@ -105,7 +105,7 @@ export function OfferPanel({ listing }: { listing: DomainListing }) {
 
       {message ? <p className="mt-4 rounded-md bg-paper p-3 text-sm text-ink/72">{message}</p> : null}
 
-      {transaction ? (
+      {transaction?.escrowUrl ? (
         <a className="focus-ring mt-4 inline-flex rounded-md bg-gold px-4 py-2 text-sm font-semibold text-white" href={transaction.escrowUrl} target="_blank" rel="noreferrer">
           Open Escrow.com handoff
         </a>

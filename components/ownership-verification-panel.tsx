@@ -6,7 +6,7 @@ import { BadgeCheck, Loader2 } from "lucide-react";
 export function OwnershipVerificationPanel() {
   const [listingId, setListingId] = useState("dom-1");
   const [token, setToken] = useState("");
-  const [method, setMethod] = useState<"dns_txt" | "nameserver" | "registrar" | "manual">("manual");
+  const [method, setMethod] = useState<"dns_txt" | "nameserver" | "registrar" | "manual">("dns_txt");
   const [message, setMessage] = useState("");
   const [verificationMode, setVerificationMode] = useState("");
   const [verifiedDomain, setVerifiedDomain] = useState("");
@@ -54,15 +54,15 @@ export function OwnershipVerificationPanel() {
         <label className="grid gap-1 text-sm font-medium">
           Method
           <select className="focus-ring h-11 rounded-md border border-line px-3" value={method} onChange={(event) => setMethod(event.target.value as typeof method)}>
-            <option value="manual">Manual review</option>
             <option value="dns_txt">DNS TXT</option>
             <option value="nameserver">Nameserver</option>
             <option value="registrar">Registrar</option>
+            <option value="manual">Manual admin review</option>
           </select>
         </label>
         <label className="grid gap-1 text-sm font-medium">
-          Token
-          <input className="focus-ring h-11 rounded-md border border-line px-3" value={token} onChange={(event) => setToken(event.target.value)} placeholder="Required for DNS checks in DB mode" />
+          Token or nameserver
+          <input className="focus-ring h-11 rounded-md border border-line px-3" value={token} onChange={(event) => setToken(event.target.value)} placeholder="DNS TXT uses the saved listing challenge" />
         </label>
       </div>
       <button className="focus-ring mt-4 inline-flex h-11 items-center gap-2 rounded-md bg-ink px-4 text-sm font-semibold text-white hover:bg-mint" onClick={verify}>

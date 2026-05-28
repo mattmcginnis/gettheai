@@ -1,7 +1,116 @@
 import { Prisma, type PrismaClient } from "@prisma/client";
-import type { DomainFilters, ListingType } from "@/lib/types";
+import type { DomainFacets, DomainFilters, ListingType } from "@/lib/types";
+
+export interface PostgresSearchOptions {
+  page?: number;
+  limit?: number;
+}
+
+export interface PostgresListingSearchResult {
+  ids: string[];
+  total: number;
+  facets: DomainFacets;
+}
+
+const priceBands = [
+  { value: "under_5k", label: "Under $5K" },
+  { value: "5k_10k", label: "$5K-$10K" },
+  { value: "10k_25k", label: "$10K-$25K" },
+  { value: "25k_plus", label: "$25K+" }
+];
 
 export async function searchPostgresListingIds(prisma: PrismaClient, filters: DomainFilters = {}) {
+  const result = await searchPostgresListings(prisma, filters);
+  return result.ids;
+}
+
+export async function searchPostgresListings(
+  prisma: PrismaClient,
+  filters: DomainFilters = {},
+  options: PostgresSearchOptions = {}
+): Promise<PostgresListingSearchResult> {
+  const conditions = buildConditions(filters);
+  const page = Math.max(1, Math.trunc(options.page ?? 1));
+  const limit = options.limit ? Math.max(1, Math.trunc(options.limit)) : null;
+  const offset = limit ? (page - 1) * limit : 0;
+  const limitSql = limit ? Prisma.sql`LIMIT ${limit} OFFSET ${offset}` : Prisma.empty;
+
+  const [rows, totalRows, tldRows, categoryRows, listingTypeRows, priceBandRows] = await Promise.all([
+    prisma.$queryRaw<Array<{ id: string }>>(Prisma.sql`
+      SELECT l."id"
+      FROM "DomainListing" l
+      LEFT JOIN "Appraisal" a ON a."listingId" = l."id"
+      WHERE ${joinSql(conditions, Prisma.sql` AND `)}
+      ORDER BY ${postgresSort(filters.sort)}
+      ${limitSql}
+    `),
+    prisma.$queryRaw<Array<{ count: bigint }>>(Prisma.sql`
+      SELECT COUNT(*) AS count
+      FROM "DomainListing" l
+      LEFT JOIN "Appraisal" a ON a."listingId" = l."id"
+      WHERE ${joinSql(conditions, Prisma.sql` AND `)}
+    `),
+    prisma.$queryRaw<Array<{ value: string; count: bigint }>>(Prisma.sql`
+      SELECT l."tld" AS value, COUNT(*) AS count
+      FROM "DomainListing" l
+      LEFT JOIN "Appraisal" a ON a."listingId" = l."id"
+      WHERE ${joinSql(conditions, Prisma.sql` AND `)}
+      GROUP BY l."tld"
+      ORDER BY count DESC, value ASC
+    `),
+    prisma.$queryRaw<Array<{ value: string; count: bigint }>>(Prisma.sql`
+      SELECT l."category" AS value, COUNT(*) AS count
+      FROM "DomainListing" l
+      LEFT JOIN "Appraisal" a ON a."listingId" = l."id"
+      WHERE ${joinSql(conditions, Prisma.sql` AND `)}
+      GROUP BY l."category"
+      ORDER BY count DESC, value ASC
+    `),
+    prisma.$queryRaw<Array<{ value: string; count: bigint }>>(Prisma.sql`
+      SELECT LOWER(l."listingType"::text) AS value, COUNT(*) AS count
+      FROM "DomainListing" l
+      LEFT JOIN "Appraisal" a ON a."listingId" = l."id"
+      WHERE ${joinSql(conditions, Prisma.sql` AND `)}
+      GROUP BY l."listingType"
+      ORDER BY count DESC, value ASC
+    `),
+    prisma.$queryRaw<Array<{ value: string; count: bigint }>>(Prisma.sql`
+      SELECT
+        CASE
+          WHEN l."priceCents" < 500000 THEN 'under_5k'
+          WHEN l."priceCents" < 1000000 THEN '5k_10k'
+          WHEN l."priceCents" < 2500000 THEN '10k_25k'
+          ELSE '25k_plus'
+        END AS value,
+        COUNT(*) AS count
+      FROM "DomainListing" l
+      LEFT JOIN "Appraisal" a ON a."listingId" = l."id"
+      WHERE ${joinSql(conditions, Prisma.sql` AND `)}
+      GROUP BY value
+      ORDER BY MIN(l."priceCents") ASC
+    `)
+  ]);
+
+  return {
+    ids: rows.map((row) => row.id),
+    total: Number(totalRows[0]?.count ?? 0),
+    facets: {
+      tlds: tldRows.map((row) => ({ value: row.value, label: `.${row.value}`, count: Number(row.count) })),
+      categories: categoryRows.map((row) => ({ value: row.value, label: row.value, count: Number(row.count) })),
+      listingTypes: listingTypeRows.map((row) => ({
+        value: row.value,
+        label: row.value.replaceAll("_", " "),
+        count: Number(row.count)
+      })),
+      priceBands: priceBands.map((band) => {
+        const count = priceBandRows.find((row) => row.value === band.value)?.count ?? 0;
+        return { ...band, count: Number(count) };
+      })
+    }
+  };
+}
+
+function buildConditions(filters: DomainFilters = {}) {
   const conditions: Prisma.Sql[] = [Prisma.sql`l."status" = 'ACTIVE'::"ListingStatus"`];
   const query = filters.q?.trim().toLowerCase();
 
@@ -65,16 +174,7 @@ export async function searchPostgresListingIds(prisma: PrismaClient, filters: Do
   if (listingType) {
     conditions.push(Prisma.sql`l."listingType" = ${listingType}::"ListingType"`);
   }
-
-  const rows = await prisma.$queryRaw<Array<{ id: string }>>(Prisma.sql`
-    SELECT l."id"
-    FROM "DomainListing" l
-    LEFT JOIN "Appraisal" a ON a."listingId" = l."id"
-    WHERE ${joinSql(conditions, Prisma.sql` AND `)}
-    ORDER BY ${postgresSort(filters.sort)}
-  `);
-
-  return rows.map((row) => row.id);
+  return conditions;
 }
 
 export function escapePostgresLikePattern(value: string) {

@@ -2,6 +2,7 @@
 
 ## Clerk
 
+- Private beta decision: use Clerk for hosted auth and MFA. See `docs/auth-strategy.md`.
 - Configure `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` and `CLERK_SECRET_KEY`.
 - Store `role` in Clerk public or private metadata as `buyer`, `seller`, or `admin`.
 - Require MFA for sellers and admins. The app reads Clerk `amr` and metadata signals.

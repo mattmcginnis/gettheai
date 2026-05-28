@@ -38,15 +38,21 @@ export default async function TransactionDetailPage({
               and audit-ready handoff state for this sale.
             </p>
           </div>
-          <a
-            className="focus-ring inline-flex items-center gap-2 rounded-md bg-ink px-4 py-2 text-sm font-semibold text-white hover:bg-mint"
-            href={transaction.escrowUrl}
-            target="_blank"
-            rel="noreferrer"
-          >
-            Open Escrow.com
-            <ExternalLink size={16} aria-hidden="true" />
-          </a>
+          {transaction.escrowUrl ? (
+            <a
+              className="focus-ring inline-flex items-center gap-2 rounded-md bg-ink px-4 py-2 text-sm font-semibold text-white hover:bg-mint"
+              href={transaction.escrowUrl}
+              target="_blank"
+              rel="noreferrer"
+            >
+              Open Escrow.com
+              <ExternalLink size={16} aria-hidden="true" />
+            </a>
+          ) : (
+            <span className="rounded-md border border-coral/30 bg-coral/10 px-4 py-2 text-sm font-semibold text-coral">
+              Handoff recovery needed
+            </span>
+          )}
         </div>
       </section>
 
@@ -84,7 +90,7 @@ export default async function TransactionDetailPage({
               <div className="mt-4 grid gap-3 text-sm">
                 <p><span className="font-semibold">Buyer:</span> {transaction.buyerEmail}</p>
                 <p><span className="font-semibold">Seller:</span> {listing.seller.publicName}</p>
-                <p><span className="font-semibold">Escrow ID:</span> {transaction.escrowId}</p>
+                <p><span className="font-semibold">Escrow ID:</span> {transaction.escrowId ?? "pending recovery"}</p>
                 <p><span className="font-semibold">Payout:</span> {detail.payoutState}</p>
               </div>
             </div>

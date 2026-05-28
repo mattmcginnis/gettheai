@@ -5,6 +5,7 @@ import {
   adminUpdateListingStatus,
   adminUpdateSupportCase,
   adminVerifySeller,
+  retryTransactionEscrowHandoff,
   updateTransactionOperations
 } from "@/lib/repository";
 
@@ -92,6 +93,21 @@ describe("admin workflow fallbacks", () => {
       transactionId: "txn_123",
       status: "buyer_funded",
       checklistUpdates: [{ index: 0, done: true }],
+      mode: "local"
+    });
+  });
+
+  it("records escrow handoff retry actions in local mode", async () => {
+    const result = await retryTransactionEscrowHandoff({
+      transactionId: "txn_123",
+      actorEmail: "admin@getthe.com",
+      note: "Escrow link expired."
+    });
+
+    expect(result).toMatchObject({
+      action: "transaction_handoff_retry",
+      transactionId: "txn_123",
+      recovered: true,
       mode: "local"
     });
   });

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { hasRole } from "@/lib/auth";
+import { getRequestAuthContext, hasRole } from "@/lib/auth";
 import { sendMarketplaceNotification } from "@/lib/notifications";
 import { verifyListingOwnership } from "@/lib/repository";
 
@@ -21,7 +21,13 @@ export async function POST(
   try {
     const { listingId } = await params;
     const body = schema.parse(await request.json());
-    const result = await verifyListingOwnership({ listingId, ...body });
+    const session = await getRequestAuthContext(request);
+    if (body.method === "manual" && session?.role !== "admin") {
+      return NextResponse.json({ error: "Manual verification requires an admin reviewer." }, { status: 403 });
+    }
+
+    const actorRole = session?.role === "admin" || session?.role === "seller" ? session.role : undefined;
+    const result = await verifyListingOwnership({ listingId, ...body, actorRole });
 
     if (body.actorEmail) {
       await sendMarketplaceNotification({

@@ -1,3 +1,23 @@
+const searchProvider = (process.env.SEARCH_INDEX_PROVIDER || "postgres").toLowerCase();
+const searchGroup =
+  searchProvider === "meilisearch"
+    ? {
+        name: "search",
+        required: ["SEARCH_INDEX_PROVIDER", "MEILISEARCH_HOST", "MEILISEARCH_API_KEY", "SEARCH_INDEX_NAME"],
+        optional: ["TYPESENSE_HOST", "TYPESENSE_API_KEY"]
+      }
+    : searchProvider === "typesense"
+      ? {
+          name: "search",
+          required: ["SEARCH_INDEX_PROVIDER", "TYPESENSE_HOST", "TYPESENSE_API_KEY", "SEARCH_INDEX_NAME"],
+          optional: ["MEILISEARCH_HOST", "MEILISEARCH_API_KEY"]
+        }
+      : {
+          name: "search",
+          required: [],
+          optional: ["SEARCH_INDEX_PROVIDER", "SEARCH_INDEX_NAME"]
+        };
+
 const groups = [
   {
     name: "core",
@@ -17,11 +37,7 @@ const groups = [
     name: "email",
     required: ["POSTMARK_SERVER_TOKEN", "POSTMARK_FROM_EMAIL"]
   },
-  {
-    name: "search",
-    required: ["MEILISEARCH_HOST", "MEILISEARCH_API_KEY", "SEARCH_INDEX_NAME"],
-    optional: ["TYPESENSE_HOST", "TYPESENSE_API_KEY"]
-  },
+  searchGroup,
   {
     name: "storage",
     required: ["S3_BUCKET", "S3_REGION", "S3_ACCESS_KEY_ID", "S3_SECRET_ACCESS_KEY"],

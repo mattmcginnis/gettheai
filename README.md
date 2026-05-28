@@ -164,6 +164,7 @@ STAGING_BASE_URL="https://staging.getthe.com" npm run staging:smoke
 
 - [Private beta runbook](docs/private-beta-runbook.md)
 - [Provider setup](docs/provider-setup.md)
+- [Auth strategy](docs/auth-strategy.md)
 - [Staging deployment](docs/staging-deployment.md)
 - [Inventory import](docs/inventory-import.md)
 - [Private beta launch checklist](docs/private-beta-launch-checklist.md)

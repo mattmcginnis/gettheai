@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { listMarketplaceListings } from "@/lib/repository";
+import { searchMarketplaceListings } from "@/lib/repository";
 import type { DomainFilters } from "@/lib/types";
 
 export async function GET(request: NextRequest) {
@@ -13,13 +13,16 @@ export async function GET(request: NextRequest) {
     maxLength: numberParam(params.get("maxLength")),
     minTraffic: numberParam(params.get("minTraffic")),
     minConfidence: numberParam(params.get("minConfidence")),
+    listingType: (params.get("listingType") ?? undefined) as DomainFilters["listingType"],
     sort: (params.get("sort") ?? "featured") as DomainFilters["sort"]
   };
 
-  return NextResponse.json({
-    results: await listMarketplaceListings(filters),
-    filters
-  });
+  return NextResponse.json(
+    await searchMarketplaceListings(filters, {
+      page: numberParam(params.get("page")) ?? 1,
+      limit: numberParam(params.get("limit")) ?? 12
+    })
+  );
 }
 
 function numberParam(value: string | null) {

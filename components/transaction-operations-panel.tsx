@@ -20,7 +20,7 @@ export function TransactionOperationsPanel({ transaction }: { transaction: Trans
   const [checklist, setChecklist] = useState(transaction.transferChecklist);
   const [note, setNote] = useState("");
   const [message, setMessage] = useState("");
-  const [loading, setLoading] = useState<"save" | "sync" | null>(null);
+  const [loading, setLoading] = useState<"save" | "sync" | "retry" | null>(null);
 
   async function save() {
     setLoading("save");
@@ -60,6 +60,27 @@ export function TransactionOperationsPanel({ transaction }: { transaction: Trans
     const payload = await response.json();
     setLoading(null);
     setMessage(response.ok ? "Escrow.com status synced." : payload.error ?? "Sync failed.");
+  }
+
+  async function retryHandoff() {
+    setLoading("retry");
+    setMessage("");
+    const response = await fetch("/admin/actions", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-getthe-role": "admin"
+      },
+      body: JSON.stringify({
+        action: "transaction_handoff_retry",
+        transactionId: transaction.id,
+        actorEmail: "admin@getthe.com",
+        note: note || undefined
+      })
+    });
+    const payload = await response.json();
+    setLoading(null);
+    setMessage(response.ok ? "Escrow.com handoff recreated." : payload.error ?? "Recovery failed.");
   }
 
   return (
@@ -109,7 +130,7 @@ export function TransactionOperationsPanel({ transaction }: { transaction: Trans
           />
         </label>
       </div>
-      <div className="mt-4 grid gap-3 sm:grid-cols-2">
+      <div className="mt-4 grid gap-3 sm:grid-cols-3">
         <button className="focus-ring inline-flex h-11 items-center justify-center gap-2 rounded-md bg-ink px-4 text-sm font-semibold text-white hover:bg-mint" onClick={save}>
           {loading === "save" ? <Loader2 className="animate-spin" size={16} /> : <CheckCircle2 size={16} />}
           Save
@@ -117,6 +138,10 @@ export function TransactionOperationsPanel({ transaction }: { transaction: Trans
         <button className="focus-ring inline-flex h-11 items-center justify-center gap-2 rounded-md border border-line bg-white px-4 text-sm font-semibold hover:border-mint hover:text-mint" onClick={sync}>
           {loading === "sync" ? <Loader2 className="animate-spin" size={16} /> : <RefreshCw size={16} />}
           Sync escrow
+        </button>
+        <button className="focus-ring inline-flex h-11 items-center justify-center gap-2 rounded-md border border-line bg-white px-4 text-sm font-semibold hover:border-mint hover:text-mint" onClick={retryHandoff}>
+          {loading === "retry" ? <Loader2 className="animate-spin" size={16} /> : <RefreshCw size={16} />}
+          Recreate handoff
         </button>
       </div>
       {message ? <p className="mt-4 rounded-md bg-paper p-3 text-sm text-ink/72">{message}</p> : null}

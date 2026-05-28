@@ -16,8 +16,10 @@ export async function POST(request: NextRequest) {
     const transaction = await createTransactionRecord(body);
     await sendMarketplaceNotification({
       to: body.buyerEmail,
-      subject: "GetThe Escrow.com handoff started",
-      textBody: `Your transaction for listing ${body.listingId} is ready: ${transaction.escrowUrl}`,
+      subject: transaction.escrowUrl ? "GetThe Escrow.com handoff started" : "GetThe transaction needs handoff recovery",
+      textBody: transaction.escrowUrl
+        ? `Your transaction for listing ${body.listingId} is ready: ${transaction.escrowUrl}`
+        : `Your transaction for listing ${body.listingId} was created and is awaiting Escrow.com handoff recovery.`,
       tag: "transaction-started",
       entityType: "transaction",
       entityId: transaction.id,

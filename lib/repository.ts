@@ -8,11 +8,12 @@ import {
 } from "@prisma/client";
 import { appraiseDomain, getTld, isValidDomain, normalizeDomain } from "@/lib/appraisal";
 import { COMMISSION_RATE } from "@/lib/constants";
-import { EscrowApiError, createEscrowHandoff, fetchEscrowTransaction } from "@/lib/escrow";
+import { EscrowApiError, createEscrowHandoff, fetchEscrowTransaction, type EscrowHandoff } from "@/lib/escrow";
 import { parsePortfolioCsv } from "@/lib/imports";
 import { scanListingRisk } from "@/lib/moderation";
+import { verifyOwnershipChallenge, type OwnershipVerificationMethod } from "@/lib/ownership-verification";
 import { getPrisma, isDatabaseConfigured } from "@/lib/prisma";
-import { searchPostgresListingIds } from "@/lib/postgres-search";
+import { searchPostgresListingIds, searchPostgresListings } from "@/lib/postgres-search";
 import { adminQueue, listings as seedListings } from "@/lib/seed";
 import { canQuerySearchIndex, searchIndexedListingIds } from "@/lib/search-index";
 import { filterAndSortListings, getListing as getSeedListing } from "@/lib/search";
@@ -20,8 +21,10 @@ import { calculateCommission, canPlaceOffer } from "@/lib/transactions";
 import type {
   AdminQueueItem,
   Appraisal,
+  DomainFacets,
   DomainFilters,
   DomainListing,
+  DomainSearchResult,
   ListingType,
   Offer,
   SearchAlertItem,
@@ -94,6 +97,9 @@ const localDraftListings = ((globalThis as typeof globalThis & {
   __gettheLocalDraftListings?: LocalDraftListing[];
 }).__gettheLocalDraftListings ??= []);
 
+const defaultSearchLimit = 12;
+const maxSearchLimit = 48;
+
 export async function listMarketplaceListings(filters: DomainFilters = {}) {
   if (!isDatabaseConfigured()) {
     return filterAndSortListings([...seedListings, ...localDraftListings], filters);
@@ -122,6 +128,47 @@ export async function listMarketplaceListings(filters: DomainFilters = {}) {
   }
 
   return hydrateListingsInOrder(await searchPostgresListingIds(prisma, filters));
+}
+
+export async function searchMarketplaceListings(
+  filters: DomainFilters = {},
+  options: { page?: number; limit?: number } = {}
+): Promise<DomainSearchResult> {
+  const page = Math.max(1, Math.trunc(options.page ?? 1));
+  const limit = Math.min(maxSearchLimit, Math.max(1, Math.trunc(options.limit ?? defaultSearchLimit)));
+
+  if (!isDatabaseConfigured()) {
+    const allResults = filterAndSortListings([...seedListings, ...localDraftListings], filters);
+    return {
+      results: allResults.slice((page - 1) * limit, page * limit),
+      filters,
+      pagination: buildPagination(page, limit, allResults.length),
+      facets: buildLocalFacets(allResults)
+    };
+  }
+
+  const prisma = getPrisma();
+  if (canQuerySearchIndex()) {
+    const indexedIds = await searchIndexedListingIds(filters).catch(() => null);
+    if (indexedIds) {
+      const pagedIds = indexedIds.slice((page - 1) * limit, page * limit);
+      const allListings = await hydrateListingsInOrder(indexedIds);
+      return {
+        results: await hydrateListingsInOrder(pagedIds),
+        filters,
+        pagination: buildPagination(page, limit, indexedIds.length),
+        facets: buildLocalFacets(allListings)
+      };
+    }
+  }
+
+  const search = await searchPostgresListings(prisma, filters, { page, limit });
+  return {
+    results: await hydrateListingsInOrder(search.ids),
+    filters,
+    pagination: buildPagination(page, limit, search.total),
+    facets: search.facets
+  };
 }
 
 async function hydrateListingsInOrder(ids: string[]) {
@@ -155,6 +202,44 @@ export async function listAllMarketplaceListingsForIndexing() {
   });
 
   return rows.map(mapListing);
+}
+
+function buildPagination(page: number, limit: number, total: number) {
+  const totalPages = Math.max(1, Math.ceil(total / limit));
+  const currentPage = Math.min(page, totalPages);
+  return {
+    page: currentPage,
+    limit,
+    total,
+    totalPages,
+    hasNextPage: currentPage < totalPages,
+    hasPreviousPage: currentPage > 1
+  };
+}
+
+function buildLocalFacets(results: DomainListing[]): DomainFacets {
+  return {
+    tlds: countFacet(results.map((listing) => listing.tld), (value) => `.${value}`),
+    categories: countFacet(results.map((listing) => listing.category)),
+    listingTypes: countFacet(results.map((listing) => listing.listingType), (value) => value.replaceAll("_", " ")),
+    priceBands: [
+      { value: "under_5k", label: "Under $5K", count: results.filter((listing) => listing.price < 5000).length },
+      { value: "5k_10k", label: "$5K-$10K", count: results.filter((listing) => listing.price >= 5000 && listing.price < 10000).length },
+      { value: "10k_25k", label: "$10K-$25K", count: results.filter((listing) => listing.price >= 10000 && listing.price < 25000).length },
+      { value: "25k_plus", label: "$25K+", count: results.filter((listing) => listing.price >= 25000).length }
+    ]
+  };
+}
+
+function countFacet(values: string[], labelFor: (value: string) => string = (value) => value) {
+  const counts = new Map<string, number>();
+  for (const value of values) {
+    counts.set(value, (counts.get(value) ?? 0) + 1);
+  }
+
+  return Array.from(counts.entries())
+    .map(([value, count]) => ({ value, label: labelFor(value), count }))
+    .sort((a, b) => b.count - a.count || a.label.localeCompare(b.label));
 }
 
 export async function getMarketplaceListing(identifier: string) {
@@ -266,9 +351,10 @@ export async function createListingDraft(input: {
 
 export async function verifyListingOwnership(input: {
   listingId: string;
-  method: "dns_txt" | "nameserver" | "registrar" | "manual";
+  method: OwnershipVerificationMethod;
   token?: string;
   actorEmail?: string;
+  actorRole?: "seller" | "admin";
 }) {
   const listing = await getMarketplaceListing(input.listingId);
   if (!listing) {
@@ -314,9 +400,47 @@ export async function verifyListingOwnership(input: {
     throw new Error("Listing not found.");
   }
 
-  const existingVerification = row.ownershipVerification as { value?: string };
-  if (input.method !== "manual" && existingVerification.value && input.token !== existingVerification.value) {
-    throw new Error("Ownership verification token does not match.");
+  const existingVerification = row.ownershipVerification as { record?: string; value?: string };
+  const challenge = await verifyOwnershipChallenge({
+    domain: row.domain,
+    method: input.method,
+    expectedRecord: existingVerification.record,
+    expectedValue: existingVerification.value,
+    token: input.token,
+    actorRole: input.actorRole
+  });
+  const attemptedAt = new Date().toISOString();
+
+  if (!challenge.verified) {
+    await prisma.domainListing.update({
+      where: { id: row.id },
+      data: {
+        ownershipVerification: {
+          ...existingVerification,
+          method: input.method,
+          status: "failed",
+          lastAttemptAt: attemptedAt,
+          lastError: challenge.reason,
+          evidence: challenge.evidence.slice(0, 10)
+        } as Prisma.InputJsonValue
+      }
+    });
+
+    await prisma.auditEvent.create({
+      data: {
+        eventType: "listing.ownership.verification_failed",
+        entityType: "domain_listing",
+        entityId: row.id,
+        metadata: {
+          method: input.method,
+          reason: challenge.reason,
+          record: challenge.record,
+          attemptedAt
+        } as Prisma.InputJsonValue
+      }
+    });
+
+    throw new Error(challenge.reason ?? "Ownership verification failed.");
   }
 
   const verifiedAt = new Date().toISOString();
@@ -327,8 +451,11 @@ export async function verifyListingOwnership(input: {
       ownershipVerification: {
         ...existingVerification,
         method: input.method,
+        status: "verified",
+        record: challenge.record ?? existingVerification.record,
         verifiedAt,
-        verifiedBy: input.actorEmail ?? "system"
+        verifiedBy: input.actorEmail ?? "system",
+        evidence: challenge.evidence.slice(0, 10)
       } as Prisma.InputJsonValue
     },
     include: listingInclude()
@@ -493,18 +620,23 @@ export async function createTransactionRecord(input: {
   const amount = input.amount ?? listing.price;
   const commission = calculateCommission(amount);
   const sellerEmail = `${listing.seller.slug}@seller.getthe.com`;
-  const handoff = await createEscrowHandoff({
-    listing,
-    buyerEmail: input.buyerEmail,
-    sellerEmail,
-    amount
-  }).catch(async (error) => {
+  let handoff: EscrowHandoff | null = null;
+  let handoffError: Error | null = null;
+  try {
+    handoff = await createEscrowHandoff({
+      listing,
+      buyerEmail: input.buyerEmail,
+      sellerEmail,
+      amount
+    });
+  } catch (error) {
+    handoffError = error instanceof Error ? error : new Error("Escrow.com handoff failed.");
     if (isDatabaseConfigured()) {
       const metadata: Record<string, unknown> = {
         listingId: listing.id,
         buyerEmail: input.buyerEmail,
         amount,
-        message: error instanceof Error ? error.message : "Escrow.com handoff failed."
+        message: handoffError.message
       };
 
       if (error instanceof EscrowApiError) {
@@ -522,8 +654,11 @@ export async function createTransactionRecord(input: {
       });
     }
 
-    throw error;
-  });
+    if (!isDatabaseConfigured()) {
+      throw handoffError;
+    }
+  }
+
   const now = new Date().toISOString();
   const transaction: Transaction = {
     id: `txn_${Date.now()}`,
@@ -532,18 +667,24 @@ export async function createTransactionRecord(input: {
     buyerEmail: input.buyerEmail,
     sellerId: listing.seller.id,
     escrowProvider: "escrow.com",
-    escrowId: handoff.escrowId,
-    escrowUrl: handoff.escrowUrl,
+    escrowId: handoff?.escrowId,
+    escrowUrl: handoff?.escrowUrl,
     amount,
     commission,
-    status: "escrow_started",
+    status: handoff ? "escrow_started" : "initiated",
     statusTimeline: [
       { status: "initiated", label: "GetThe created the transaction record.", at: now },
-      {
-        status: "escrow_started",
-        label: handoff.mode === "api" ? "Escrow.com API transaction created." : "Buyer is handed off to Escrow.com.",
-        at: now
-      }
+      handoff
+        ? {
+            status: "escrow_started" as const,
+            label: handoff.mode === "api" ? "Escrow.com API transaction created." : "Buyer is handed off to Escrow.com.",
+            at: now
+          }
+        : {
+            status: "initiated" as const,
+            label: `Escrow.com handoff failed and needs admin recovery: ${handoffError?.message ?? "unknown error"}`,
+            at: now
+          }
     ],
     transferChecklist: [
       { label: "Buyer funds Escrow.com transaction", done: false },
@@ -567,11 +708,11 @@ export async function createTransactionRecord(input: {
       buyerId: buyer.id,
       sellerId: listing.seller.id,
       escrowProvider: "escrow.com",
-      escrowId: handoff.escrowId,
-      escrowUrl: handoff.escrowUrl,
+      escrowId: handoff?.escrowId,
+      escrowUrl: handoff?.escrowUrl,
       amountCents: dollarsToCents(amount),
       commissionCents: dollarsToCents(commission),
-      status: "ESCROW_STARTED",
+      status: handoff ? "ESCROW_STARTED" : "INITIATED",
       statusTimeline: transaction.statusTimeline,
       transferChecklist: transaction.transferChecklist,
       payoutState: "pending"
@@ -701,6 +842,85 @@ export async function syncTransactionEscrowStatus(input: { transactionId: string
   return {
     synced: true,
     result
+  };
+}
+
+export async function retryTransactionEscrowHandoff(input: { transactionId: string; actorEmail?: string; note?: string }) {
+  if (!isDatabaseConfigured()) {
+    return {
+      action: "transaction_handoff_retry",
+      transactionId: input.transactionId,
+      recovered: true,
+      mode: "local"
+    };
+  }
+
+  const prisma = getPrisma();
+  const transaction = await prisma.transaction.findFirst({
+    where: {
+      OR: [{ id: input.transactionId }, { escrowId: input.transactionId }]
+    },
+    include: transactionInclude()
+  });
+
+  if (!transaction) {
+    throw new Error("Transaction not found.");
+  }
+
+  const listing = mapListing(transaction.listing);
+  const amount = centsToDollars(transaction.amountCents);
+  const handoff = await createEscrowHandoff({
+    listing,
+    buyerEmail: transaction.buyer.email,
+    sellerEmail: `${listing.seller.slug}@seller.getthe.com`,
+    amount
+  });
+  const timeline = Array.isArray(transaction.statusTimeline)
+    ? (transaction.statusTimeline as Transaction["statusTimeline"])
+    : [];
+  const now = new Date().toISOString();
+  const updated = await prisma.transaction.update({
+    where: { id: transaction.id },
+    data: {
+      escrowId: handoff.escrowId,
+      escrowUrl: handoff.escrowUrl,
+      status: "ESCROW_STARTED",
+      statusTimeline: [
+        ...timeline,
+        {
+          status: "escrow_started",
+          label: handoff.mode === "api"
+            ? "Admin recreated Escrow.com API transaction."
+            : "Admin recreated Escrow.com handoff link.",
+          at: now
+        }
+      ] as Prisma.InputJsonValue,
+      updatedAt: new Date()
+    },
+    include: transactionInclude()
+  });
+  const actor = input.actorEmail ? await ensureUser(input.actorEmail, "ADMIN") : null;
+
+  await prisma.auditEvent.create({
+    data: {
+      actorId: actor?.id,
+      eventType: "escrow.handoff.retried",
+      entityType: "transaction",
+      entityId: transaction.id,
+      metadata: {
+        oldEscrowId: transaction.escrowId,
+        newEscrowId: handoff.escrowId,
+        note: input.note,
+        retriedAt: now
+      } as Prisma.InputJsonValue
+    }
+  });
+
+  return {
+    action: "transaction_handoff_retry",
+    recovered: true,
+    transaction: mapTransaction(updated),
+    mode: "database"
   };
 }
 
@@ -1969,8 +2189,8 @@ function mapTransaction(row: NonNullable<PrismaTransaction>): Transaction {
     buyerEmail: row.buyer.email,
     sellerId: row.sellerId,
     escrowProvider: "escrow.com",
-    escrowId: row.escrowId ?? row.id,
-    escrowUrl: row.escrowUrl ?? `https://www.escrow.com/transaction/${row.escrowId}`,
+    escrowId: row.escrowId ?? undefined,
+    escrowUrl: row.escrowUrl ?? undefined,
     amount: centsToDollars(row.amountCents),
     commission: centsToDollars(row.commissionCents),
     status: row.status.toLowerCase() as TransactionStatus,
