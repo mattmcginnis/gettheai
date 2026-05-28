@@ -1,16 +1,20 @@
 import { clerkMiddleware } from "@clerk/nextjs/server";
 import { NextRequest, NextResponse, type NextFetchEvent } from "next/server";
-import { checkRateLimit, isSameOriginRequest } from "@/lib/security";
+import { applySecurityHeaders, checkRateLimit, getRequestId, isSameOriginRequest } from "@/lib/security";
 
 const useClerkMiddleware = Boolean(process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY && process.env.CLERK_SECRET_KEY);
-const withClerk = clerkMiddleware((_auth, request) => handleDomainRewrite(request) ?? NextResponse.next());
+const withClerk = clerkMiddleware((_auth, request) => {
+  const requestId = getRequestId(request.headers);
+  return applySecurityHeaders(handleDomainRewrite(request) ?? NextResponse.next(), requestId);
+});
 
 export default function middleware(request: NextRequest, event: NextFetchEvent) {
   if (useClerkMiddleware) {
     return withClerk(request, event);
   }
 
-  return handleDomainRewrite(request) ?? NextResponse.next();
+  const requestId = getRequestId(request.headers);
+  return applySecurityHeaders(handleDomainRewrite(request) ?? NextResponse.next(), requestId);
 }
 
 function handleDomainRewrite(request: NextRequest) {
@@ -54,7 +58,16 @@ function protectWriteRequest(request: NextRequest) {
   });
 
   if (!rateLimit.allowed) {
-    return NextResponse.json({ error: "Too many requests." }, { status: 429 });
+    return NextResponse.json(
+      { error: "Too many requests." },
+      {
+        status: 429,
+        headers: {
+          "x-ratelimit-remaining": String(rateLimit.remaining),
+          "x-ratelimit-reset": String(rateLimit.resetAt)
+        }
+      }
+    );
   }
 
   return null;

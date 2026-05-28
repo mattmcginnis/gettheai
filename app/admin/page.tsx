@@ -12,6 +12,7 @@ import {
   Tags,
   Users
 } from "lucide-react";
+import { AdminActionsPanel } from "@/components/admin-actions-panel";
 import { MetricCard } from "@/components/metric-card";
 import { formatMoney } from "@/lib/appraisal";
 import { getAdminOverview } from "@/lib/repository";
@@ -64,6 +65,8 @@ export default async function AdminPage() {
               ))}
             </div>
           </div>
+
+          <AdminActionsPanel />
 
           <div className="rounded-md border border-line bg-white p-5 shadow-panel lg:col-span-2">
             <div className="flex items-center gap-2">

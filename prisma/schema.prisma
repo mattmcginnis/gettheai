@@ -64,72 +64,85 @@ enum SupportStatus {
 }
 
 model User {
-  id                      String            @id @default(cuid())
-  clerkUserId             String            @unique
-  email                   String            @unique
+  id                      String           @id @default(cuid())
+  clerkUserId             String           @unique
+  email                   String           @unique
   displayName             String?
-  role                    UserRole          @default(BUYER)
-  verificationTier        VerificationTier  @default(EMAIL)
-  twoFactorEnabled        Boolean           @default(false)
-  notificationPreferences Json              @default("{}")
+  role                    UserRole         @default(BUYER)
+  verificationTier        VerificationTier @default(EMAIL)
+  twoFactorEnabled        Boolean          @default(false)
+  notificationPreferences Json             @default("{}")
   sellerProfile           SellerProfile?
-  createdAt               DateTime          @default(now())
-  updatedAt               DateTime          @updatedAt
-  listings                DomainListing[]   @relation("SellerListings")
-  buyerOffers             Offer[]           @relation("BuyerOffers")
-  buyerTransactions       Transaction[]     @relation("BuyerTransactions")
+  createdAt               DateTime         @default(now())
+  updatedAt               DateTime         @updatedAt
+  listings                DomainListing[]  @relation("SellerListings")
+  buyerOffers             Offer[]          @relation("BuyerOffers")
+  buyerTransactions       Transaction[]    @relation("BuyerTransactions")
   auditEvents             AuditEvent[]
   supportCases            SupportCase[]
   watchlists              Watchlist[]
   searchAlerts            SearchAlert[]
+
+  @@index([role])
+  @@index([verificationTier])
+  @@index([twoFactorEnabled])
 }
 
 model SellerProfile {
-  id                     String          @id @default(cuid())
-  userId                 String          @unique
-  user                   User            @relation(fields: [userId], references: [id])
-  publicName             String
-  slug                   String          @unique
-  payoutPreference       String          @default("escrow.com")
-  supportStatus          SupportStatus   @default(OPEN)
-  importedPortfolioMeta  Json            @default("{}")
-  commissionDiscountBps  Int             @default(0)
-  createdAt              DateTime        @default(now())
-  updatedAt              DateTime        @updatedAt
+  id                    String        @id @default(cuid())
+  userId                String        @unique
+  user                  User          @relation(fields: [userId], references: [id])
+  publicName            String
+  slug                  String        @unique
+  payoutPreference      String        @default("escrow.com")
+  supportStatus         SupportStatus @default(OPEN)
+  importedPortfolioMeta Json          @default("{}")
+  commissionDiscountBps Int           @default(0)
+  createdAt             DateTime      @default(now())
+  updatedAt             DateTime      @updatedAt
+
+  @@index([supportStatus])
 }
 
 model DomainListing {
-  id                     String         @id @default(cuid())
-  sellerId               String
-  seller                 User           @relation("SellerListings", fields: [sellerId], references: [id])
-  domain                 String         @unique
-  tld                    String
-  registrar              String?
-  status                 ListingStatus  @default(DRAFT)
-  listingType            ListingType    @default(BUY_NOW_AND_OFFER)
-  priceCents             Int
-  minimumOfferCents      Int?
-  commissionBps          Int            @default(700)
-  ownershipVerification  Json           @default("{}")
-  description            String
-  category               String
-  trafficMonthly         Int            @default(0)
-  domainAgeYears         Int            @default(0)
-  seoTitle               String
-  seoDescription         String
-  landingPageSlug        String         @unique
-  brandSignals           Json           @default("{}")
-  createdAt              DateTime       @default(now())
-  updatedAt              DateTime       @updatedAt
-  appraisal              Appraisal?
-  offers                 Offer[]
-  transactions           Transaction[]
-  watchlists             Watchlist[]
+  id                    String        @id @default(cuid())
+  sellerId              String
+  seller                User          @relation("SellerListings", fields: [sellerId], references: [id])
+  domain                String        @unique
+  tld                   String
+  registrar             String?
+  status                ListingStatus @default(DRAFT)
+  listingType           ListingType   @default(BUY_NOW_AND_OFFER)
+  priceCents            Int
+  minimumOfferCents     Int?
+  commissionBps         Int           @default(700)
+  ownershipVerification Json          @default("{}")
+  description           String
+  category              String
+  trafficMonthly        Int           @default(0)
+  domainAgeYears        Int           @default(0)
+  seoTitle              String
+  seoDescription        String
+  landingPageSlug       String        @unique
+  brandSignals          Json          @default("{}")
+  createdAt             DateTime      @default(now())
+  updatedAt             DateTime      @updatedAt
+  appraisal             Appraisal?
+  offers                Offer[]
+  transactions          Transaction[]
+  watchlists            Watchlist[]
+
+  @@index([status])
+  @@index([tld])
+  @@index([category])
+  @@index([priceCents])
+  @@index([listingType])
+  @@index([status, updatedAt])
 }
 
 model Appraisal {
-  id                 String        @id @default(cuid())
-  listingId          String?       @unique
+  id                 String         @id @default(cuid())
+  listingId          String?        @unique
   listing            DomainListing? @relation(fields: [listingId], references: [id])
   domain             String
   lowEstimateCents   Int
@@ -140,91 +153,116 @@ model Appraisal {
   brandabilityNotes  String
   generatedSummary   String
   modelVersion       String
-  disclaimerAccepted Boolean       @default(false)
-  createdAt          DateTime      @default(now())
+  disclaimerAccepted Boolean        @default(false)
+  createdAt          DateTime       @default(now())
+
+  @@index([domain])
+  @@index([confidence])
 }
 
 model Offer {
-  id                    String             @id @default(cuid())
+  id                    String           @id @default(cuid())
   listingId             String
-  listing               DomainListing      @relation(fields: [listingId], references: [id])
+  listing               DomainListing    @relation(fields: [listingId], references: [id])
   buyerId               String
-  buyer                 User               @relation("BuyerOffers", fields: [buyerId], references: [id])
+  buyer                 User             @relation("BuyerOffers", fields: [buyerId], references: [id])
   amountCents           Int
-  status                OfferStatus        @default(PENDING)
+  status                OfferStatus      @default(PENDING)
   buyerVerificationTier VerificationTier
   expiresAt             DateTime
-  negotiationHistory    Json               @default("[]")
-  createdAt             DateTime           @default(now())
-  updatedAt             DateTime           @updatedAt
+  negotiationHistory    Json             @default("[]")
+  createdAt             DateTime         @default(now())
+  updatedAt             DateTime         @updatedAt
   transaction           Transaction?
+
+  @@index([listingId, status])
+  @@index([buyerId, status])
+  @@index([expiresAt])
+  @@index([updatedAt])
 }
 
 model Transaction {
-  id                    String             @id @default(cuid())
-  listingId             String
-  listing               DomainListing      @relation(fields: [listingId], references: [id])
-  offerId               String?            @unique
-  offer                 Offer?             @relation(fields: [offerId], references: [id])
-  buyerId               String
-  buyer                 User               @relation("BuyerTransactions", fields: [buyerId], references: [id])
-  sellerId              String
-  escrowProvider        String             @default("escrow.com")
-  escrowId              String?
-  escrowUrl             String?
-  amountCents           Int
-  commissionCents       Int
-  status                TransactionStatus  @default(INITIATED)
-  statusTimeline        Json               @default("[]")
-  transferChecklist     Json               @default("[]")
-  payoutState           String             @default("pending")
-  createdAt             DateTime           @default(now())
-  updatedAt             DateTime           @updatedAt
+  id                String            @id @default(cuid())
+  listingId         String
+  listing           DomainListing     @relation(fields: [listingId], references: [id])
+  offerId           String?           @unique
+  offer             Offer?            @relation(fields: [offerId], references: [id])
+  buyerId           String
+  buyer             User              @relation("BuyerTransactions", fields: [buyerId], references: [id])
+  sellerId          String
+  escrowProvider    String            @default("escrow.com")
+  escrowId          String?
+  escrowUrl         String?
+  amountCents       Int
+  commissionCents   Int
+  status            TransactionStatus @default(INITIATED)
+  statusTimeline    Json              @default("[]")
+  transferChecklist Json              @default("[]")
+  payoutState       String            @default("pending")
+  createdAt         DateTime          @default(now())
+  updatedAt         DateTime          @updatedAt
+
+  @@index([status])
+  @@index([escrowId])
+  @@index([listingId, status])
+  @@index([buyerId, status])
+  @@index([updatedAt])
 }
 
 model Watchlist {
-  id         String        @id @default(cuid())
-  userId     String
-  user       User          @relation(fields: [userId], references: [id])
-  listingId  String
-  listing    DomainListing @relation(fields: [listingId], references: [id])
-  createdAt  DateTime      @default(now())
+  id        String        @id @default(cuid())
+  userId    String
+  user      User          @relation(fields: [userId], references: [id])
+  listingId String
+  listing   DomainListing @relation(fields: [listingId], references: [id])
+  createdAt DateTime      @default(now())
 
   @@unique([userId, listingId])
 }
 
 model SearchAlert {
-  id          String   @id @default(cuid())
-  userId      String
-  user        User     @relation(fields: [userId], references: [id])
-  name        String
-  filters     Json
-  cadence     String   @default("weekly")
-  active      Boolean  @default(true)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+  name      String
+  filters   Json
+  cadence   String   @default("weekly")
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([active])
+  @@index([cadence])
 }
 
 model AuditEvent {
-  id          String   @id @default(cuid())
-  actorId     String?
-  actor       User?    @relation(fields: [actorId], references: [id])
-  eventType   String
-  entityType  String
-  entityId    String
-  metadata    Json     @default("{}")
-  createdAt   DateTime @default(now())
+  id         String   @id @default(cuid())
+  actorId    String?
+  actor      User?    @relation(fields: [actorId], references: [id])
+  eventType  String
+  entityType String
+  entityId   String
+  metadata   Json     @default("{}")
+  createdAt  DateTime @default(now())
+
+  @@index([eventType])
+  @@index([entityType, entityId])
+  @@index([createdAt])
 }
 
 model SupportCase {
-  id                String        @id @default(cuid())
-  requesterId       String
-  requester         User          @relation(fields: [requesterId], references: [id])
-  subject           String
-  status            SupportStatus @default(OPEN)
-  transactionId     String?
-  aiDraftResponses  Json          @default("[]")
-  escalationNotes   String?
-  createdAt         DateTime      @default(now())
-  updatedAt         DateTime      @updatedAt
+  id               String        @id @default(cuid())
+  requesterId      String
+  requester        User          @relation(fields: [requesterId], references: [id])
+  subject          String
+  status           SupportStatus @default(OPEN)
+  transactionId    String?
+  aiDraftResponses Json          @default("[]")
+  escalationNotes  String?
+  createdAt        DateTime      @default(now())
+  updatedAt        DateTime      @updatedAt
+
+  @@index([status])
+  @@index([transactionId])
+  @@index([updatedAt])
 }

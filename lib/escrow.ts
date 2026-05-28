@@ -73,6 +73,24 @@ export function verifyEscrowWebhookReplay(signature: string | null) {
   }).allowed;
 }
 
+export function verifyEscrowWebhookTimestamp(timestamp: string | null) {
+  if (!process.env.ESCROW_WEBHOOK_SECRET) {
+    return true;
+  }
+
+  if (!timestamp) {
+    return false;
+  }
+
+  const parsed = parseWebhookTimestamp(timestamp);
+  if (!parsed) {
+    return false;
+  }
+
+  const windowSeconds = Number(process.env.ESCROW_WEBHOOK_REPLAY_WINDOW_SECONDS ?? 300);
+  return Math.abs(Date.now() - parsed) <= windowSeconds * 1000;
+}
+
 export function isEscrowApiConfigured() {
   return Boolean(
     process.env.ESCROW_API_BASE_URL &&
@@ -183,4 +201,15 @@ function buildEscrowHandoffUrl(escrowId: string, domain: string, amount: number,
   });
 
   return `https://www.escrow.com/domain-name-holding?${params.toString()}`;
+}
+
+function parseWebhookTimestamp(timestamp: string) {
+  const trimmed = timestamp.trim();
+  if (/^\d+$/.test(trimmed)) {
+    const numeric = Number(trimmed);
+    return trimmed.length <= 10 ? numeric * 1000 : numeric;
+  }
+
+  const parsed = Date.parse(trimmed);
+  return Number.isNaN(parsed) ? null : parsed;
 }

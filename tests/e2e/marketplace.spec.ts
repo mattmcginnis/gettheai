@@ -33,6 +33,17 @@ test("buyer can discover, appraise, watch, alert, and request support", async ({
   });
   expect(offer.ok()).toBeTruthy();
 
+  const transaction = await request.post("/transactions", {
+    data: {
+      listingId: targetListing.id,
+      buyerEmail,
+      amount: targetListing.price
+    }
+  });
+  expect(transaction.ok()).toBeTruthy();
+  const transactionBody = await transaction.json();
+  expect(transactionBody.transaction.status).toBe("escrow_started");
+
   const watchlist = await request.post("/watchlist", {
     headers: { "x-getthe-role": "buyer" },
     data: {
@@ -62,9 +73,22 @@ test("buyer can discover, appraise, watch, alert, and request support", async ({
     }
   });
   expect(support.ok()).toBeTruthy();
+
+  const dispute = await request.post("/admin/actions", {
+    headers: { "x-getthe-role": "admin" },
+    data: {
+      action: "transaction_dispute",
+      transactionId: transactionBody.transaction.id,
+      actorEmail: "admin@getthe.com",
+      note: "Playwright transaction dispute note."
+    }
+  });
+  expect(dispute.ok()).toBeTruthy();
 });
 
 test("seller/admin workflow creates listing, verifies ownership, scans, and drafts outreach", async ({ page, request }, testInfo) => {
+  const sellerEmail = `seller+${testInfo.project.name}-${Date.now()}@example.com`;
+
   await page.goto("/seller");
   await expect(page.getByRole("heading", { name: "Seller dashboard" })).toBeVisible();
 
@@ -95,6 +119,30 @@ test("seller/admin workflow creates listing, verifies ownership, scans, and draf
     data: { actorEmail: "admin@getthe.com" }
   });
   expect(moderation.ok()).toBeTruthy();
+
+  const action = await request.post("/admin/actions", {
+    headers: { "x-getthe-role": "admin" },
+    data: {
+      action: "listing_status",
+      listingId: listingBody.listing.id,
+      status: "flagged",
+      actorEmail: "admin@getthe.com",
+      note: "Playwright listing status review."
+    }
+  });
+  expect(action.ok()).toBeTruthy();
+
+  const sellerVerification = await request.post("/admin/actions", {
+    headers: { "x-getthe-role": "admin" },
+    data: {
+      action: "seller_verification",
+      sellerEmail,
+      verificationTier: "two_factor",
+      actorEmail: "admin@getthe.com",
+      note: "Playwright seller verification."
+    }
+  });
+  expect(sellerVerification.ok()).toBeTruthy();
 
   const outreach = await request.post("/ai/outreach", {
     headers: { "x-getthe-role": "seller" },

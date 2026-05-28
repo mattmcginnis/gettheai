@@ -70,6 +70,7 @@ npm run build
 - `POST /support` opens a support case with an AI copilot draft.
 - `GET /api/metrics` returns admin-only marketplace metrics.
 - `GET /admin/operations` returns users, listings, offers, transactions, and audit events for admin tooling.
+- `POST /admin/actions` records manual admin listing, seller verification, offer cancellation, support, and transaction dispute interventions.
 - `POST /admin/review` records admin review actions. Requires `x-getthe-role: admin` in this local scaffold.
 - `POST /admin/search/sync` indexes active listings into Meilisearch, Typesense, or local no-op mode.
 - `POST /admin/escrow/sync` pulls Escrow.com transaction status into the internal timeline when API credentials are configured.
@@ -100,6 +101,7 @@ docker compose up --build postgres meilisearch
 DATABASE_URL="postgresql://getthe:getthe@localhost:55432/getthe" npm run prisma:migrate
 DATABASE_URL="postgresql://getthe:getthe@localhost:55432/getthe" npm run prisma:seed
 DATABASE_URL="postgresql://getthe:getthe@localhost:55432/getthe" npm run db:smoke
+DATABASE_URL="postgresql://getthe:getthe@localhost:55432/getthe" npm run db:cleanup
 MEILISEARCH_HOST="http://localhost:7700" MEILISEARCH_API_KEY="getthe_dev_master_key" npm run dev
 ```
 
@@ -142,9 +144,16 @@ npm run preview:deploy
 ## Private Beta Controls
 
 - Write requests are same-origin checked and rate-limited by path/IP in middleware.
-- Escrow.com webhooks use HMAC verification when `ESCROW_WEBHOOK_SECRET` is set and reject duplicate signatures inside the replay window.
+- Middleware adds request IDs, frame, content-type, referrer, and permissions security headers.
+- Escrow.com webhooks use HMAC verification when `ESCROW_WEBHOOK_SECRET` is set and reject stale timestamps plus duplicate signatures inside the replay window.
 - Admin operations expose compact user, listing, offer, transaction, support, and audit snapshots for beta monitoring.
+- Manual admin actions are audited for listing status changes, seller verification, offer cancellation, support escalation, and transaction disputes.
 - `npm run preview:verify-env` reports missing launch credentials; set `REQUIRE_PRODUCTION_SECRETS=true` in CI to fail hard.
+
+## Operator Docs
+
+- [Private beta runbook](docs/private-beta-runbook.md)
+- [Provider setup](docs/provider-setup.md)
 
 ## Verification Completed
 

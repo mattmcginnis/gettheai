@@ -69,3 +69,16 @@ export function checkReplay({
   replayCache.set(key, now + windowMs);
   return { allowed: true };
 }
+
+export function getRequestId(headers: Headers) {
+  return headers.get("x-request-id") ?? crypto.randomUUID();
+}
+
+export function applySecurityHeaders(response: Response, requestId: string) {
+  response.headers.set("x-request-id", requestId);
+  response.headers.set("x-content-type-options", "nosniff");
+  response.headers.set("referrer-policy", "strict-origin-when-cross-origin");
+  response.headers.set("x-frame-options", "DENY");
+  response.headers.set("permissions-policy", "camera=(), microphone=(), geolocation=()");
+  return response;
+}

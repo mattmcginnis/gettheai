@@ -16,6 +16,7 @@
     "prisma:migrate": "prisma migrate dev",
     "prisma:seed": "node prisma/seed.js",
     "db:smoke": "node scripts/db-workflow-smoke.js",
+    "db:cleanup": "node scripts/cleanup-demo-data.js",
     "infra:up": "docker compose up -d postgres meilisearch",
     "infra:down": "docker compose down",
     "preview:verify-env": "node scripts/verify-preview-env.js",
