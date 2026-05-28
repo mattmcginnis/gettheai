@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ArrowLeft, ExternalLink, ShieldCheck } from "lucide-react";
+import { requirePageRole } from "@/lib/page-auth";
 import { getAdminEntityDetail } from "@/lib/repository";
 
 const entityLabels: Record<string, string> = {
@@ -23,6 +24,7 @@ export default async function AdminEntityDetailPage({
   params: Promise<{ entity: string; id: string }>;
 }) {
   const { entity, id } = await params;
+  await requirePageRole(["admin"], `/admin/${entity}/${id}`);
   const detail = await getAdminEntityDetail(entity, decodeURIComponent(id));
 
   if (!detail) {

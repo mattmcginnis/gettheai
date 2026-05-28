@@ -4,6 +4,7 @@ import { BadgeDollarSign, ExternalLink, ShieldCheck, UserCheck } from "lucide-re
 import { TransactionOperationsPanel } from "@/components/transaction-operations-panel";
 import { TransactionTimeline } from "@/components/transaction-timeline";
 import { formatMoney } from "@/lib/appraisal";
+import { requirePageRole } from "@/lib/page-auth";
 import { getTransactionDetail } from "@/lib/repository";
 
 export const metadata: Metadata = {
@@ -16,6 +17,7 @@ export default async function TransactionDetailPage({
   params: Promise<{ transactionId: string }>;
 }) {
   const { transactionId } = await params;
+  const session = await requirePageRole(["buyer", "seller", "admin"], `/transactions/${transactionId}`);
   const detail = await getTransactionDetail(transactionId);
 
   if (!detail) {
@@ -76,7 +78,7 @@ export default async function TransactionDetailPage({
 
           <div className="grid gap-6">
             <TransactionTimeline transaction={transaction} />
-            <TransactionOperationsPanel transaction={transaction} />
+            {session.role === "admin" ? <TransactionOperationsPanel transaction={transaction} /> : null}
             <div className="rounded-md border border-line bg-white p-5 shadow-panel">
               <h2 className="text-xl font-bold">Parties</h2>
               <div className="mt-4 grid gap-3 text-sm">

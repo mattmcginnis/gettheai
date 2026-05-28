@@ -38,7 +38,10 @@ export function ImportWorkbench() {
     setImportResult(null);
     const response = await fetch("/imports/portfolio", {
       method: "POST",
-      headers: { "content-type": "text/csv" },
+      headers: {
+        "content-type": "text/csv",
+        "x-getthe-role": "seller"
+      },
       body: csv
     });
     const payload = await response.json();

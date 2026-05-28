@@ -101,18 +101,20 @@ test("buyer can discover, appraise, watch, alert, and request support", async ({
   });
   expect(adminDetail.ok()).toBeTruthy();
 
+  await signIn(page, "admin");
   await page.goto(`/transactions/${transactionBody.transaction.id}`);
   await expect(page.getByRole("heading", { name: "Admin operations" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Sync escrow" })).toBeVisible();
 
   await page.goto(`/admin/transactions/${transactionBody.transaction.id}`);
   await expect(page.getByRole("heading", { name: `${targetListing.domain} transaction` })).toBeVisible();
-  await expect(page.getByText("statusTimeline")).toBeVisible();
+  await expect(page.getByText(/status timeline/i)).toBeVisible();
 });
 
 test("seller/admin workflow creates listing, verifies ownership, scans, and drafts outreach", async ({ page, request }, testInfo) => {
   const sellerEmail = `seller+${testInfo.project.name}-${Date.now()}@example.com`;
 
+  await signIn(page, "seller");
   await page.goto("/seller");
   await expect(page.getByRole("heading", { name: "Seller dashboard" })).toBeVisible();
 
@@ -181,6 +183,17 @@ test("seller/admin workflow creates listing, verifies ownership, scans, and draf
   expect(outreach.ok()).toBeTruthy();
   expect((await outreach.json()).outreachDraft.requiresHumanApproval).toBe(true);
 
+  await signIn(page, "admin");
   await page.goto(`/admin/listings/${listingBody.listing.id}`);
   await expect(page.getByRole("heading", { name: listingBody.listing.domain })).toBeVisible();
 });
+
+async function signIn(page: import("@playwright/test").Page, role: "buyer" | "seller" | "admin") {
+  await page.goto("/sign-in");
+  await page.getByLabel("Email").fill(`${role}@getthe.com`);
+  await page.getByLabel("Password").fill("Marketplace2026");
+  await page.getByLabel("Account type").selectOption(role);
+  await page.getByLabel("2FA code").fill(role === "buyer" ? "" : "123456");
+  await page.getByRole("button", { name: "Continue" }).click();
+  await expect(page.getByText(`verified as ${role}`)).toBeVisible();
+}

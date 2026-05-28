@@ -5,10 +5,12 @@ import { DomainCard } from "@/components/domain-card";
 import { ImportWorkbench } from "@/components/import-workbench";
 import { ListingWorkbench } from "@/components/listing-workbench";
 import { MetricCard } from "@/components/metric-card";
+import { NotificationFeed } from "@/components/notification-feed";
 import { OfferManagementPanel } from "@/components/offer-management-panel";
 import { OwnershipVerificationPanel } from "@/components/ownership-verification-panel";
 import { OutreachWorkbench } from "@/components/outreach-workbench";
 import { SupportWorkbench } from "@/components/support-workbench";
+import { requirePageRole } from "@/lib/page-auth";
 import { getFeaturedListings } from "@/lib/repository";
 
 export const metadata: Metadata = {
@@ -20,6 +22,7 @@ export default async function SellerPage({
 }: {
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
+  const session = await requirePageRole(["seller", "admin"], "/seller");
   const params = await searchParams;
   const initialDomain = Array.isArray(params.domain) ? params.domain[0] : params.domain;
   const listings = await getFeaturedListings(3);
@@ -51,6 +54,7 @@ export default async function SellerPage({
           <AppraisalWorkbench initialDomain={initialDomain ?? "clearledger.com"} />
           <ImportWorkbench />
           <OwnershipVerificationPanel />
+          <NotificationFeed recipientEmail={session.email} />
           <OfferManagementPanel />
           <OutreachWorkbench />
           <SupportWorkbench />

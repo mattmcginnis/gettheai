@@ -1,15 +1,15 @@
 import { NextResponse } from "next/server";
-import { isEscrowApiConfigured } from "@/lib/escrow";
-import { isDatabaseConfigured } from "@/lib/prisma";
-import { getSearchIndexProvider } from "@/lib/search-index";
+import { getRuntimeDiagnostics } from "@/lib/observability";
 
 export async function GET() {
+  const diagnostics = getRuntimeDiagnostics();
   return NextResponse.json({
     ok: true,
-    database: isDatabaseConfigured() ? "configured" : "local",
-    search: getSearchIndexProvider(),
-    escrow: isEscrowApiConfigured() ? "api" : "handoff",
-    ai: process.env.AI_PROVIDER ?? "local",
-    storage: process.env.S3_BUCKET ? "s3" : "local"
+    ...diagnostics,
+    checks: {
+      auth: diagnostics.localAuthFallback ? "local_fallback" : "provider",
+      funds: "escrow_provider_only",
+      webhookReplayProtection: process.env.ESCROW_WEBHOOK_SECRET ? "signed_timestamped" : "unsigned_dev_mode"
+    }
   });
 }

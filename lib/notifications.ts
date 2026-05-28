@@ -1,4 +1,5 @@
 import { sendTransactionalEmail, type TransactionalEmail } from "@/lib/email";
+import { logEvent } from "@/lib/observability";
 import { getPrisma, isDatabaseConfigured } from "@/lib/prisma";
 import { Prisma } from "@prisma/client";
 
@@ -23,6 +24,18 @@ export async function sendMarketplaceNotification(message: MarketplaceNotificati
         error: error instanceof Error ? error.message : "Notification failed."
       }
     }));
+
+  logEvent({
+    level: result.ok ? "info" : "warn",
+    event: result.eventType,
+    metadata: {
+      entityType: message.entityType,
+      entityId: message.entityId,
+      tag: message.tag,
+      to: message.to,
+      recipientRole: message.recipientRole
+    }
+  });
 
   if (isDatabaseConfigured()) {
     await getPrisma().auditEvent.create({

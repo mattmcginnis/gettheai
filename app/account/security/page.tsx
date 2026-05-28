@@ -1,12 +1,15 @@
 import type { Metadata } from "next";
 import { KeyRound, MailCheck, RotateCcw, Smartphone } from "lucide-react";
 import { MetricCard } from "@/components/metric-card";
+import { requirePageRole } from "@/lib/page-auth";
 
 export const metadata: Metadata = {
   title: "Account Security"
 };
 
-export default function AccountSecurityPage() {
+export default async function AccountSecurityPage() {
+  await requirePageRole(["buyer", "seller", "admin"], "/account/security");
+
   return (
     <main>
       <section className="border-b border-line bg-white py-10">

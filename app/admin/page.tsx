@@ -4,6 +4,7 @@ import {
   Activity,
   BadgeDollarSign,
   DatabaseZap,
+  Filter,
   Flag,
   HandCoins,
   LifeBuoy,
@@ -15,15 +16,23 @@ import {
 } from "lucide-react";
 import { AdminActionsPanel } from "@/components/admin-actions-panel";
 import { MetricCard } from "@/components/metric-card";
+import { requirePageRole } from "@/lib/page-auth";
 import { formatMoney } from "@/lib/appraisal";
-import { getAdminOverview } from "@/lib/repository";
+import { getAdminOverview, type AdminOperationFilters } from "@/lib/repository";
 
 export const metadata: Metadata = {
   title: "Admin Operations"
 };
 
-export default async function AdminPage() {
-  const { activeListings, gmv, commission, queue, supportCases, operations } = await getAdminOverview();
+export default async function AdminPage({
+  searchParams
+}: {
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+}) {
+  await requirePageRole(["admin"], "/admin");
+  const params = await searchParams;
+  const filters = parseAdminFilters(params);
+  const { activeListings, gmv, commission, queue, supportCases, operations } = await getAdminOverview(filters);
 
   return (
     <main>
@@ -49,6 +58,8 @@ export default async function AdminPage() {
 
       <section className="pb-12">
         <div className="shell grid gap-6 lg:grid-cols-[1fr_380px]">
+          <AdminFilters filters={filters} />
+
           <div className="rounded-md border border-line bg-white p-5 shadow-panel">
             <div className="flex items-center gap-2">
               <Flag className="text-coral" size={20} aria-hidden="true" />
@@ -146,11 +157,16 @@ export default async function AdminPage() {
               Sync active listings to Meilisearch or Typesense when credentials are configured.
               Without credentials, the endpoint reports local search mode.
             </p>
-            <form action="/admin/search/sync" method="post" className="mt-5">
+            <div className="mt-5 flex flex-wrap gap-3">
+            <form action="/admin/search/sync" method="post">
               <button className="focus-ring rounded-md bg-ink px-4 py-2 text-sm font-semibold text-white hover:bg-mint">
                 Sync search index
               </button>
             </form>
+              <Link href="/admin/observability" className="focus-ring rounded-md border border-line px-4 py-2 text-sm font-semibold hover:border-mint hover:text-mint">
+                View observability
+              </Link>
+            </div>
           </div>
 
           <div className="rounded-md border border-line bg-white p-5 shadow-panel">
@@ -166,6 +182,9 @@ export default async function AdminPage() {
                 Run scan
               </button>
             </form>
+            <Link href="/admin/beta-checklist" className="focus-ring mt-3 inline-flex rounded-md border border-line px-4 py-2 text-sm font-semibold hover:border-mint hover:text-mint">
+              Beta checklist
+            </Link>
           </div>
 
           <div className="rounded-md border border-line bg-white p-5 shadow-panel">
@@ -195,6 +214,51 @@ export default async function AdminPage() {
       </section>
     </main>
   );
+}
+
+function AdminFilters({ filters }: { filters: AdminOperationFilters }) {
+  return (
+    <form className="rounded-md border border-line bg-white p-5 shadow-panel lg:col-span-2">
+      <div className="flex items-center gap-2">
+        <Filter className="text-sky" size={20} aria-hidden="true" />
+        <h2 className="text-2xl font-bold">Record filters</h2>
+      </div>
+      <div className="mt-5 grid gap-3 md:grid-cols-[1fr_180px_180px_auto]">
+        <label className="grid gap-1 text-sm font-medium">
+          Search
+          <input className="focus-ring h-11 rounded-md border border-line px-3" name="q" defaultValue={filters.q ?? ""} />
+        </label>
+        <label className="grid gap-1 text-sm font-medium">
+          Kind
+          <select className="focus-ring h-11 rounded-md border border-line px-3" name="kind" defaultValue={filters.kind ?? "all"}>
+            {["all", "users", "listings", "offers", "transactions", "audit"].map((kind) => (
+              <option key={kind} value={kind}>{kind}</option>
+            ))}
+          </select>
+        </label>
+        <label className="grid gap-1 text-sm font-medium">
+          Status
+          <input className="focus-ring h-11 rounded-md border border-line px-3" name="status" defaultValue={filters.status ?? ""} placeholder="active, pending" />
+        </label>
+        <button className="focus-ring mt-6 h-11 rounded-md bg-ink px-4 text-sm font-semibold text-white hover:bg-mint">
+          Apply
+        </button>
+      </div>
+    </form>
+  );
+}
+
+function parseAdminFilters(params: Record<string, string | string[] | undefined>): AdminOperationFilters {
+  const kind = getParam(params.kind);
+  return {
+    q: getParam(params.q),
+    status: getParam(params.status),
+    kind: kind === "users" || kind === "listings" || kind === "offers" || kind === "transactions" || kind === "audit" ? kind : "all"
+  };
+}
+
+function getParam(value: string | string[] | undefined) {
+  return Array.isArray(value) ? value[0] : value;
 }
 
 function AdminPanel({

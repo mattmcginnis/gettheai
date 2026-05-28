@@ -83,6 +83,11 @@ export interface AdminEntityDetail {
     }>;
   }>;
 }
+export interface AdminOperationFilters {
+  q?: string;
+  kind?: "all" | "users" | "listings" | "offers" | "transactions" | "audit";
+  status?: string;
+}
 
 const localDraftListings = ((globalThis as typeof globalThis & {
   __gettheLocalDraftListings?: LocalDraftListing[];
@@ -884,10 +889,57 @@ export async function listSupportCases() {
   return rows.map(mapSupportCase);
 }
 
-export async function getAdminOverview() {
+export async function listNotificationEvents(input: { recipientEmail?: string; limit?: number } = {}) {
+  if (!isDatabaseConfigured()) {
+    return [] as Array<{
+      id: string;
+      eventType: string;
+      tag?: string;
+      subject?: string;
+      recipientEmail?: string;
+      entityType: string;
+      entityId: string;
+      createdAt: string;
+    }>;
+  }
+
+  const rows = await getPrisma().auditEvent.findMany({
+    where: {
+      eventType: {
+        startsWith: "notification."
+      }
+    },
+    orderBy: { createdAt: "desc" },
+    take: input.limit ?? 8
+  });
+
+  return rows
+    .map((row) => {
+      const metadata = row.metadata as {
+        to?: unknown;
+        tag?: unknown;
+        subject?: unknown;
+        recipientRole?: unknown;
+      };
+      return {
+        id: row.id,
+        eventType: row.eventType,
+        tag: typeof metadata.tag === "string" ? metadata.tag : undefined,
+        subject: typeof metadata.subject === "string" ? metadata.subject : undefined,
+        recipientEmail: typeof metadata.to === "string" ? metadata.to : undefined,
+        recipientRole: typeof metadata.recipientRole === "string" ? metadata.recipientRole : undefined,
+        entityType: row.entityType,
+        entityId: row.entityId,
+        createdAt: row.createdAt.toISOString()
+      };
+    })
+    .filter((row) => !input.recipientEmail || row.recipientEmail === input.recipientEmail);
+}
+
+export async function getAdminOverview(filters: AdminOperationFilters = {}) {
   const activeListings = await listMarketplaceListings();
   const supportCases = await listSupportCases();
-  const operations = await getAdminOperations();
+  const operations = await getAdminOperations(filters);
   const gmv = activeListings.reduce((sum, listing) => sum + listing.price, 0);
   const commission = Math.round(gmv * COMMISSION_RATE);
 
@@ -901,9 +953,9 @@ export async function getAdminOverview() {
   };
 }
 
-export async function getAdminOperations() {
+export async function getAdminOperations(filters: AdminOperationFilters = {}) {
   if (!isDatabaseConfigured()) {
-    return {
+    return applyAdminOperationFilters({
       users: [],
       listings: seedListings.slice(0, 8).map((listing) => ({
         id: listing.id,
@@ -916,7 +968,7 @@ export async function getAdminOperations() {
       offers: [],
       transactions: [],
       auditEvents: []
-    };
+    }, filters);
   }
 
   const prisma = getPrisma();
@@ -928,7 +980,7 @@ export async function getAdminOperations() {
     prisma.auditEvent.findMany({ include: { actor: true }, orderBy: { createdAt: "desc" }, take: 12 })
   ]);
 
-  return {
+  return applyAdminOperationFilters({
     users: users.map((user) => ({
       id: user.id,
       email: user.email,
@@ -970,7 +1022,7 @@ export async function getAdminOperations() {
       entityId: event.entityId,
       createdAt: event.createdAt.toISOString()
     }))
-  };
+  }, filters);
 }
 
 export async function getAdminEntityDetail(entity: string, identifier: string): Promise<AdminEntityDetail | null> {
@@ -1948,6 +2000,40 @@ function mapTransactionStatusToPrisma(status: TransactionStatus) {
 
 function appendJsonArray(value: unknown, entry: unknown) {
   return [...(Array.isArray(value) ? value : []), entry];
+}
+
+function applyAdminOperationFilters<T extends {
+  users: Array<Record<string, unknown>>;
+  listings: Array<Record<string, unknown>>;
+  offers: Array<Record<string, unknown>>;
+  transactions: Array<Record<string, unknown>>;
+  auditEvents: Array<Record<string, unknown>>;
+}>(operations: T, filters: AdminOperationFilters): T {
+  const q = filters.q?.trim().toLowerCase();
+  const status = filters.status?.trim().toLowerCase();
+  const kind = filters.kind ?? "all";
+
+  const matchesText = (row: Record<string, unknown>) => {
+    if (!q) return true;
+    return Object.values(row).some((value) => String(value ?? "").toLowerCase().includes(q));
+  };
+  const matchesStatus = (row: Record<string, unknown>) => {
+    if (!status || status === "all") return true;
+    return String(row.status ?? row.role ?? row.eventType ?? "").toLowerCase().includes(status);
+  };
+  const filterRows = (rows: Array<Record<string, unknown>>, rowKind: AdminOperationFilters["kind"]) => {
+    if (kind !== "all" && kind !== rowKind) return [];
+    return rows.filter((row) => matchesText(row) && matchesStatus(row));
+  };
+
+  return {
+    ...operations,
+    users: filterRows(operations.users, "users"),
+    listings: filterRows(operations.listings, "listings"),
+    offers: filterRows(operations.offers, "offers"),
+    transactions: filterRows(operations.transactions, "transactions"),
+    auditEvents: filterRows(operations.auditEvents, "audit")
+  };
 }
 
 function adminRows(values: Record<string, unknown>) {
