@@ -1,14 +1,42 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
+  createOfferRecord,
   createSearchAlert,
   createSupportCase,
   createWatchlistItem,
+  deliverSearchAlerts,
+  getNotificationPreferences,
+  listOfferInbox,
   listNotificationEvents,
+  listSellerInventory,
+  updateNotificationPreferences,
   verifyListingOwnership
 } from "@/lib/repository";
 import { verifyOwnershipChallenge } from "@/lib/ownership-verification";
 
+const originalDatabaseUrl = process.env.DATABASE_URL;
+const originalPostmarkToken = process.env.POSTMARK_SERVER_TOKEN;
+
 describe("marketplace workflow repository fallbacks", () => {
+  beforeEach(() => {
+    delete process.env.DATABASE_URL;
+    delete process.env.POSTMARK_SERVER_TOKEN;
+  });
+
+  afterEach(() => {
+    if (originalDatabaseUrl) {
+      process.env.DATABASE_URL = originalDatabaseUrl;
+    } else {
+      delete process.env.DATABASE_URL;
+    }
+
+    if (originalPostmarkToken) {
+      process.env.POSTMARK_SERVER_TOKEN = originalPostmarkToken;
+    } else {
+      delete process.env.POSTMARK_SERVER_TOKEN;
+    }
+  });
+
   it("verifies listing ownership in local mode", async () => {
     const result = await verifyListingOwnership({
       listingId: "dom-1",
@@ -49,6 +77,40 @@ describe("marketplace workflow repository fallbacks", () => {
 
   it("returns an empty notification feed in local mode", async () => {
     await expect(listNotificationEvents({ recipientEmail: "buyer@example.com" })).resolves.toEqual([]);
+  });
+
+  it("lists seller inventory and offer inbox records in local mode", async () => {
+    const offer = await createOfferRecord({
+      listingId: "dom-1",
+      buyerEmail: "buyer@example.com",
+      amount: 7000,
+      buyerVerificationTier: "escrow_intent"
+    });
+    const inventory = await listSellerInventory({ email: "seller@example.com", role: "seller" });
+    const buyerInbox = await listOfferInbox({ email: "buyer@example.com", role: "buyer" });
+    const sellerInbox = await listOfferInbox({ email: "seller@example.com", role: "seller" });
+
+    expect(inventory.length).toBeGreaterThan(0);
+    expect(buyerInbox.some((item) => item.id === offer.id)).toBe(true);
+    expect(sellerInbox.some((item) => item.id === offer.id)).toBe(true);
+  });
+
+  it("updates preferences and delivers saved-search alerts in local mode", async () => {
+    await createSearchAlert({
+      userEmail: "buyer-alerts@example.com",
+      name: "AI names",
+      filters: { q: "ai" },
+      cadence: "weekly"
+    });
+    const preferences = await updateNotificationPreferences({
+      email: "buyer-alerts@example.com",
+      preferences: { weeklyDigest: true, instantAlerts: false }
+    });
+    const delivery = await deliverSearchAlerts({ cadence: "weekly" });
+
+    await expect(getNotificationPreferences("buyer-alerts@example.com")).resolves.toMatchObject(preferences);
+    expect(delivery.scanned).toBeGreaterThan(0);
+    expect(delivery.delivered).toBeGreaterThan(0);
   });
 
   it("keeps manual ownership verification admin-only", async () => {

@@ -6,12 +6,20 @@ import { ImportWorkbench } from "@/components/import-workbench";
 import { ListingWorkbench } from "@/components/listing-workbench";
 import { MetricCard } from "@/components/metric-card";
 import { NotificationFeed } from "@/components/notification-feed";
+import { NotificationPreferencesPanel } from "@/components/notification-preferences-panel";
+import { OfferInbox } from "@/components/offer-inbox";
 import { OfferManagementPanel } from "@/components/offer-management-panel";
 import { OwnershipVerificationPanel } from "@/components/ownership-verification-panel";
 import { OutreachWorkbench } from "@/components/outreach-workbench";
+import { SellerInventoryPanel } from "@/components/seller-inventory-panel";
 import { SupportWorkbench } from "@/components/support-workbench";
 import { requirePageRole } from "@/lib/page-auth";
-import { getFeaturedListings } from "@/lib/repository";
+import {
+  getFeaturedListings,
+  getNotificationPreferences,
+  listOfferInbox,
+  listSellerInventory
+} from "@/lib/repository";
 
 export const metadata: Metadata = {
   title: "Seller Dashboard"
@@ -25,7 +33,14 @@ export default async function SellerPage({
   const session = await requirePageRole(["seller", "admin"], "/seller");
   const params = await searchParams;
   const initialDomain = Array.isArray(params.domain) ? params.domain[0] : params.domain;
-  const listings = await getFeaturedListings(3);
+  const [listings, inventory, offers, notificationPreferences] = await Promise.all([
+    getFeaturedListings(3),
+    listSellerInventory({ email: session.email, role: session.role }),
+    listOfferInbox({ email: session.email, role: session.role === "admin" ? "admin" : "seller" }),
+    getNotificationPreferences(session.email)
+  ]);
+  const activeInventory = inventory.filter((item) => item.status === "active").length;
+  const openOffers = offers.filter((offer) => offer.status === "pending" || offer.status === "countered").length;
 
   return (
     <main>
@@ -42,19 +57,22 @@ export default async function SellerPage({
       <section className="py-8">
         <div className="shell grid gap-4 md:grid-cols-4">
           <MetricCard label="Commission" value="7%" detail="Completed sales only." icon={<BadgeDollarSign size={20} />} />
-          <MetricCard label="Verification" value="DNS TXT" detail="Nameserver or manual fallback." icon={<FileCheck2 size={20} />} />
-          <MetricCard label="Security" value="2FA" detail="Required for sellers." icon={<ShieldCheck size={20} />} />
+          <MetricCard label="Active inventory" value={String(activeInventory)} detail={`${inventory.length} seller listings tracked.`} icon={<FileCheck2 size={20} />} />
+          <MetricCard label="Open offers" value={String(openOffers)} detail="Pending or countered buyer offers." icon={<ShieldCheck size={20} />} />
           <MetricCard label="AI" value="Copilot" detail="Drafts copy and price rationale." icon={<Sparkles size={20} />} />
         </div>
       </section>
 
       <section className="pb-12">
         <div className="shell grid gap-6 lg:grid-cols-2">
+          <SellerInventoryPanel inventory={inventory} />
+          <OfferInbox offers={offers} title="Seller offer inbox" empty="No buyer offers yet." />
           <ListingWorkbench initialDomain={initialDomain ?? "clearledger.com"} />
           <AppraisalWorkbench initialDomain={initialDomain ?? "clearledger.com"} />
           <ImportWorkbench />
           <OwnershipVerificationPanel />
           <NotificationFeed recipientEmail={session.email} />
+          <NotificationPreferencesPanel email={session.email} preferences={notificationPreferences} />
           <OfferManagementPanel />
           <OutreachWorkbench />
           <SupportWorkbench />

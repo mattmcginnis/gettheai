@@ -11,6 +11,7 @@ import { COMMISSION_RATE } from "@/lib/constants";
 import { EscrowApiError, createEscrowHandoff, fetchEscrowTransaction, type EscrowHandoff } from "@/lib/escrow";
 import { parsePortfolioCsv } from "@/lib/imports";
 import { scanListingRisk } from "@/lib/moderation";
+import { sendMarketplaceNotification } from "@/lib/notifications";
 import { verifyOwnershipChallenge, type OwnershipVerificationMethod } from "@/lib/ownership-verification";
 import { getPrisma, isDatabaseConfigured } from "@/lib/prisma";
 import { searchPostgresListingIds, searchPostgresListings } from "@/lib/postgres-search";
@@ -26,8 +27,12 @@ import type {
   DomainListing,
   DomainSearchResult,
   ListingType,
+  NotificationPreferences,
   Offer,
+  OfferInboxItem,
+  OperationalAnalytics,
   SearchAlertItem,
+  SellerInventoryItem,
   SupportCaseItem,
   Transaction,
   TransactionStatus,
@@ -97,12 +102,36 @@ const localDraftListings = ((globalThis as typeof globalThis & {
   __gettheLocalDraftListings?: LocalDraftListing[];
 }).__gettheLocalDraftListings ??= []);
 
+const localListingStatusOverrides = ((globalThis as typeof globalThis & {
+  __gettheLocalListingStatusOverrides?: Map<string, DomainListing["status"]>;
+}).__gettheLocalListingStatusOverrides ??= new Map<string, DomainListing["status"]>());
+
+const localOffers = ((globalThis as typeof globalThis & {
+  __gettheLocalOffers?: OfferInboxItem[];
+}).__gettheLocalOffers ??= []);
+
+const localSearchAlerts = ((globalThis as typeof globalThis & {
+  __gettheLocalSearchAlerts?: SearchAlertItem[];
+}).__gettheLocalSearchAlerts ??= []);
+
+const localNotificationPreferences = ((globalThis as typeof globalThis & {
+  __gettheLocalNotificationPreferences?: Map<string, NotificationPreferences>;
+}).__gettheLocalNotificationPreferences ??= new Map<string, NotificationPreferences>());
+
 const defaultSearchLimit = 12;
 const maxSearchLimit = 48;
+const defaultNotificationPreferences: NotificationPreferences = {
+  instantAlerts: true,
+  dailyDigest: false,
+  weeklyDigest: true,
+  offerUpdates: true,
+  transactionUpdates: true,
+  supportUpdates: true
+};
 
 export async function listMarketplaceListings(filters: DomainFilters = {}) {
   if (!isDatabaseConfigured()) {
-    return filterAndSortListings([...seedListings, ...localDraftListings], filters);
+    return filterAndSortListings(getLocalListings(), filters);
   }
 
   const prisma = getPrisma();
@@ -138,7 +167,7 @@ export async function searchMarketplaceListings(
   const limit = Math.min(maxSearchLimit, Math.max(1, Math.trunc(options.limit ?? defaultSearchLimit)));
 
   if (!isDatabaseConfigured()) {
-    const allResults = filterAndSortListings([...seedListings, ...localDraftListings], filters);
+    const allResults = filterAndSortListings(getLocalListings(), filters);
     return {
       results: allResults.slice((page - 1) * limit, page * limit),
       filters,
@@ -191,7 +220,7 @@ async function hydrateListingsInOrder(ids: string[]) {
 
 export async function listAllMarketplaceListingsForIndexing() {
   if (!isDatabaseConfigured()) {
-    return filterAndSortListings([...seedListings, ...localDraftListings]);
+    return filterAndSortListings(getLocalListings());
   }
 
   const prisma = getPrisma();
@@ -245,11 +274,11 @@ function countFacet(values: string[], labelFor: (value: string) => string = (val
 export async function getMarketplaceListing(identifier: string) {
   if (!isDatabaseConfigured()) {
     const normalizedIdentifier = identifier.toLowerCase();
-    const localDraft = localDraftListings.find(
+    const localDraft = getLocalListings().find(
       (listing) => listing.id === identifier || listing.domain === normalizedIdentifier
     );
 
-    return localDraft ?? getSeedListing(identifier) ?? seedListings.find((listing) => listing.id === identifier) ?? null;
+    return localDraft ?? applyLocalListingOverride(getSeedListing(identifier)) ?? null;
   }
 
   const row = await getPrismaListingByIdOrDomain(identifier);
@@ -483,6 +512,118 @@ export async function verifyListingOwnership(input: {
   };
 }
 
+export async function listSellerInventory(input: {
+  email: string;
+  role?: "seller" | "admin" | "buyer";
+}): Promise<SellerInventoryItem[]> {
+  if (!isDatabaseConfigured()) {
+    return getLocalListings().map((listing) => ({
+      id: listing.id,
+      domain: listing.domain,
+      status: listing.status,
+      listingType: listing.listingType,
+      price: listing.price,
+      minimumOffer: listing.minimumOffer,
+      ownershipVerified: listing.ownershipVerified,
+      verificationStatus: listing.ownershipVerified ? "verified" : "pending",
+      offerCount: localOffers.filter((offer) => offer.listingId === listing.id).length,
+      openOfferCount: localOffers.filter((offer) => offer.listingId === listing.id && isOpenOfferStatus(offer.status)).length,
+      updatedAt: listing.createdAt
+    }));
+  }
+
+  const rows = await getPrisma().domainListing.findMany({
+    where: input.role === "admin" ? {} : { seller: { email: input.email.toLowerCase() } },
+    include: {
+      ...listingInclude(),
+      offers: {
+        select: {
+          status: true
+        }
+      }
+    },
+    orderBy: { updatedAt: "desc" }
+  });
+
+  return rows.map((row) => ({
+    id: row.id,
+    domain: row.domain,
+    status: row.status.toLowerCase() as DomainListing["status"],
+    listingType: row.listingType.toLowerCase() as ListingType,
+    price: centsToDollars(row.priceCents),
+    minimumOffer: centsToDollars(row.minimumOfferCents ?? row.priceCents),
+    ownershipVerified: isListingOwnershipVerified(row.status.toLowerCase() as DomainListing["status"], row.ownershipVerification),
+    verificationStatus: ownershipVerificationStatus(row.ownershipVerification),
+    offerCount: row.offers.length,
+    openOfferCount: row.offers.filter((offer) => isOpenOfferStatus(offer.status.toLowerCase() as Offer["status"])).length,
+    updatedAt: row.updatedAt.toISOString()
+  }));
+}
+
+export async function updateSellerListingStatus(input: {
+  listingId: string;
+  status: "draft" | "active" | "archived";
+  actorEmail: string;
+  actorRole: "seller" | "admin";
+}) {
+  const listing = await getMarketplaceListing(input.listingId);
+  if (!listing) {
+    throw new Error("Listing not found.");
+  }
+
+  if (input.status === "active" && !listing.ownershipVerified && input.actorRole !== "admin") {
+    throw new Error("Verify ownership before publishing this listing.");
+  }
+
+  if (!isDatabaseConfigured()) {
+    localListingStatusOverrides.set(listing.id, input.status);
+    return {
+      action: "seller_listing_status",
+      listing: {
+        ...listing,
+        status: input.status
+      },
+      mode: "local"
+    };
+  }
+
+  const row = await getPrismaListingByIdOrDomain(input.listingId);
+  if (!row) {
+    throw new Error("Listing not found.");
+  }
+
+  if (input.actorRole !== "admin" && row.seller.email.toLowerCase() !== input.actorEmail.toLowerCase()) {
+    throw new Error("Only the seller of record can update this listing.");
+  }
+
+  const updated = await getPrisma().domainListing.update({
+    where: { id: row.id },
+    data: {
+      status: mapListingStatusToPrisma(input.status)
+    },
+    include: listingInclude()
+  });
+
+  await createAdminAudit({
+    actorEmail: input.actorRole === "admin" ? input.actorEmail : undefined,
+    eventType: input.actorRole === "admin" ? "admin.listing.status.updated" : "seller.listing.status.updated",
+    entityType: "domain_listing",
+    entityId: row.id,
+    metadata: {
+      domain: row.domain,
+      from: row.status.toLowerCase(),
+      to: input.status,
+      actorEmail: input.actorEmail
+    }
+  });
+
+  return {
+    action: "seller_listing_status",
+    listing: mapListing(updated),
+    mode: "database"
+  };
+}
+
 export async function createOfferRecord(input: {
   listingId: string;
   buyerEmail: string;
@@ -529,6 +670,18 @@ export async function createOfferRecord(input: {
   };
 
   if (!isDatabaseConfigured()) {
+    localOffers.unshift({
+      id: offer.id,
+      domain: listing.domain,
+      listingId: listing.id,
+      buyerEmail: input.buyerEmail.toLowerCase(),
+      sellerName: listing.seller.publicName,
+      amount: offer.amount,
+      status: offer.status,
+      buyerVerificationTier: offer.buyerVerificationTier,
+      expiresAt: offer.expiresAt,
+      updatedAt: new Date().toISOString()
+    });
     return offer;
   }
 
@@ -557,6 +710,13 @@ export async function decideOffer(input: {
   note: string;
 }) {
   if (!isDatabaseConfigured()) {
+    const existing = localOffers.find((offer) => offer.id === input.offerId);
+    if (existing) {
+      existing.status = input.action === "accept" ? "accepted" : input.action === "reject" ? "rejected" : "countered";
+      existing.amount = input.amount ?? existing.amount;
+      existing.updatedAt = new Date().toISOString();
+    }
+
     return {
       offerId: input.offerId,
       status: input.action === "accept" ? "accepted" : input.action === "reject" ? "rejected" : "countered",
@@ -601,9 +761,38 @@ export async function decideOffer(input: {
             buyerEmail: updated.buyer.email,
             offerId: updated.id,
             amount: centsToDollars(updated.amountCents)
-          })
+      })
         : null
   };
+}
+
+export async function listOfferInbox(input: {
+  email: string;
+  role: "buyer" | "seller" | "admin";
+}): Promise<OfferInboxItem[]> {
+  if (!isDatabaseConfigured()) {
+    const email = input.email.toLowerCase();
+    return localOffers
+      .filter((offer) => {
+        if (input.role === "admin" || input.role === "seller") return true;
+        return offer.buyerEmail.toLowerCase() === email;
+      })
+      .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+  }
+
+  const rows = await getPrisma().offer.findMany({
+    where:
+      input.role === "admin"
+        ? {}
+        : input.role === "seller"
+          ? { listing: { seller: { email: input.email.toLowerCase() } } }
+          : { buyer: { email: input.email.toLowerCase() } },
+    include: offerInclude(),
+    orderBy: { updatedAt: "desc" },
+    take: 50
+  });
+
+  return rows.map(mapOfferInbox);
 }
 
 export async function createTransactionRecord(input: {
@@ -1046,7 +1235,7 @@ export async function createSearchAlert(input: {
 }): Promise<SearchAlertItem> {
   const createdAt = new Date().toISOString();
   if (!isDatabaseConfigured()) {
-    return {
+    const alert = {
       id: `alert_${Date.now()}`,
       userEmail: input.userEmail,
       name: input.name,
@@ -1055,6 +1244,8 @@ export async function createSearchAlert(input: {
       active: true,
       createdAt
     };
+    localSearchAlerts.unshift(alert);
+    return alert;
   }
 
   const user = await ensureUser(input.userEmail, "BUYER");
@@ -1079,6 +1270,105 @@ export async function createSearchAlert(input: {
     cadence: row.cadence as SearchAlertItem["cadence"],
     active: row.active,
     createdAt: row.createdAt.toISOString()
+  };
+}
+
+export async function getNotificationPreferences(email: string): Promise<NotificationPreferences> {
+  const normalizedEmail = email.toLowerCase();
+  if (!isDatabaseConfigured()) {
+    return {
+      ...defaultNotificationPreferences,
+      ...(localNotificationPreferences.get(normalizedEmail) ?? {})
+    };
+  }
+
+  const user = (await getPrisma().user.findUnique({ where: { email: normalizedEmail } })) ?? await ensureUser(normalizedEmail, "BUYER");
+  return normalizeNotificationPreferences(user.notificationPreferences);
+}
+
+export async function updateNotificationPreferences(input: {
+  email: string;
+  preferences: Partial<NotificationPreferences>;
+}): Promise<NotificationPreferences> {
+  const email = input.email.toLowerCase();
+  const preferences = normalizeNotificationPreferences(input.preferences);
+  if (!isDatabaseConfigured()) {
+    localNotificationPreferences.set(email, preferences);
+    return preferences;
+  }
+
+  const user = (await getPrisma().user.findUnique({ where: { email } })) ?? await ensureUser(email, "BUYER");
+  const row = await getPrisma().user.update({
+    where: { id: user.id },
+    data: {
+      notificationPreferences: preferences as unknown as Prisma.InputJsonValue
+    }
+  });
+
+  return normalizeNotificationPreferences(row.notificationPreferences);
+}
+
+export async function deliverSearchAlerts(input: {
+  cadence?: SearchAlertItem["cadence"];
+  actorEmail?: string;
+} = {}) {
+  const cadence = input.cadence ?? "weekly";
+  const alerts = await listSearchAlertsForDelivery(cadence);
+  const deliveries = [];
+
+  for (const alert of alerts) {
+    const preferences = await getNotificationPreferences(alert.userEmail);
+    if (!shouldDeliverAlert(preferences, alert.cadence)) {
+      deliveries.push({
+        alertId: alert.id,
+        userEmail: alert.userEmail,
+        delivered: false,
+        reason: "disabled"
+      });
+      continue;
+    }
+
+    const search = await searchMarketplaceListings(alert.filters, { page: 1, limit: 5 });
+    if (!search.results.length) {
+      deliveries.push({
+        alertId: alert.id,
+        userEmail: alert.userEmail,
+        delivered: false,
+        reason: "no_matches"
+      });
+      continue;
+    }
+
+    const topMatches = search.results.map((listing) => listing.domain).join(", ");
+    const result = await sendMarketplaceNotification({
+      to: alert.userEmail,
+      subject: `GetThe alert: ${alert.name}`,
+      textBody: `${search.pagination.total} matching domains found. Top matches: ${topMatches}.`,
+      tag: `search-alert-${alert.cadence}`,
+      entityType: "search_alert",
+      entityId: alert.id,
+      recipientRole: "buyer",
+      metadata: {
+        cadence: alert.cadence,
+        matchCount: search.pagination.total,
+        actorEmail: input.actorEmail
+      }
+    });
+
+    deliveries.push({
+      alertId: alert.id,
+      userEmail: alert.userEmail,
+      delivered: result.ok,
+      reason: result.ok ? "sent" : "failed",
+      matchCount: search.pagination.total
+    });
+  }
+
+  return {
+    cadence,
+    scanned: alerts.length,
+    delivered: deliveries.filter((delivery) => delivery.delivered).length,
+    deliveries
   };
 }
 
@@ -1185,10 +1475,159 @@ export async function listNotificationEvents(input: { recipientEmail?: string; l
     .filter((row) => !input.recipientEmail || row.recipientEmail === input.recipientEmail);
 }
 
+export async function listModerationQueue(): Promise<AdminQueueItem[]> {
+  if (!isDatabaseConfigured()) {
+    return adminQueue;
+  }
+
+  const rows = await getPrisma().auditEvent.findMany({
+    where: {
+      OR: [
+        { eventType: "moderation.flag.created", entityType: "admin_queue_item" },
+        { eventType: { startsWith: "admin.review." }, entityType: "admin_queue_item" }
+      ]
+    },
+    orderBy: { createdAt: "desc" },
+    take: 250
+  });
+
+  const flags = new Map<string, AdminQueueItem>();
+  const reviews = new Map<string, { status: AdminQueueItem["status"]; createdAt: Date }>();
+
+  for (const row of rows) {
+    if (row.eventType === "moderation.flag.created") {
+      const item = normalizeAdminQueueItem(row.metadata, row.entityId, row.createdAt);
+      if (!flags.has(item.id)) {
+        flags.set(item.id, item);
+      }
+      continue;
+    }
+
+    const status: AdminQueueItem["status"] =
+      row.eventType === "admin.review.approve" || row.eventType === "admin.review.reject" ? "resolved" : "reviewing";
+    const existing = reviews.get(row.entityId);
+    if (!existing || existing.createdAt < row.createdAt) {
+      reviews.set(row.entityId, { status, createdAt: row.createdAt });
+    }
+  }
+
+  return Array.from(flags.values())
+    .map((item) => ({
+      ...item,
+      status: reviews.get(item.id)?.status ?? item.status
+    }))
+    .sort((a, b) => severityRank(b.severity) - severityRank(a.severity) || b.createdAt.localeCompare(a.createdAt));
+}
+
+export async function recordAnalyticsEvent(input: {
+  eventType: "analytics.appraisal.completed" | "analytics.search.performed" | "analytics.listing.viewed";
+  entityType: string;
+  entityId: string;
+  metadata?: Record<string, unknown>;
+}) {
+  if (!isDatabaseConfigured()) {
+    return {
+      recorded: false,
+      mode: "local"
+    };
+  }
+
+  await getPrisma().auditEvent.create({
+    data: {
+      eventType: input.eventType,
+      entityType: input.entityType,
+      entityId: input.entityId,
+      metadata: (input.metadata ?? {}) as Prisma.InputJsonValue
+    }
+  });
+
+  return {
+    recorded: true,
+    mode: "database"
+  };
+}
+
+export async function getOperationalAnalytics(): Promise<OperationalAnalytics> {
+  if (!isDatabaseConfigured()) {
+    const listings = getLocalListings().filter((listing) => listing.status === "active");
+    return {
+      appraisalCount: listings.length,
+      listingCount: listings.length,
+      appraisalToListingRate: 100,
+      searchCount: 0,
+      detailViewCount: 0,
+      searchToDetailRate: 0,
+      offerCount: localOffers.length,
+      offerRate: 0,
+      escrowStartedCount: 0,
+      escrowStartRate: 0,
+      completedGmv: 0,
+      failedHandoffCount: 0
+    };
+  }
+
+  const prisma = getPrisma();
+  const [
+    appraisalCount,
+    listingCount,
+    searchCount,
+    detailViewCount,
+    offerCount,
+    escrowStartedCount,
+    completedTransactions,
+    failedHandoffCount
+  ] = await Promise.all([
+    prisma.auditEvent.count({ where: { eventType: "analytics.appraisal.completed" } }),
+    prisma.domainListing.count({ where: { status: "ACTIVE" } }),
+    prisma.auditEvent.count({ where: { eventType: "analytics.search.performed" } }),
+    prisma.auditEvent.count({ where: { eventType: "analytics.listing.viewed" } }),
+    prisma.offer.count(),
+    prisma.transaction.count({
+      where: {
+        status: {
+          in: [
+            PrismaTransactionStatus.ESCROW_STARTED,
+            PrismaTransactionStatus.BUYER_FUNDED,
+            PrismaTransactionStatus.DOMAIN_TRANSFER_STARTED,
+            PrismaTransactionStatus.TRANSFER_VERIFIED,
+            PrismaTransactionStatus.PAYOUT_COMPLETE,
+            PrismaTransactionStatus.CLOSED
+          ]
+        }
+      }
+    }),
+    prisma.transaction.findMany({
+      where: {
+        status: {
+          in: [PrismaTransactionStatus.PAYOUT_COMPLETE, PrismaTransactionStatus.CLOSED]
+        }
+      },
+      select: { amountCents: true }
+    }),
+    prisma.auditEvent.count({ where: { eventType: "escrow.handoff.failed" } })
+  ]);
+
+  return {
+    appraisalCount,
+    listingCount,
+    appraisalToListingRate: rate(listingCount, appraisalCount),
+    searchCount,
+    detailViewCount,
+    searchToDetailRate: rate(detailViewCount, searchCount),
+    offerCount,
+    offerRate: rate(offerCount, detailViewCount),
+    escrowStartedCount,
+    escrowStartRate: rate(escrowStartedCount, offerCount),
+    completedGmv: centsToDollars(completedTransactions.reduce((sum, transaction) => sum + transaction.amountCents, 0)),
+    failedHandoffCount
+  };
+}
+
 export async function getAdminOverview(filters: AdminOperationFilters = {}) {
   const activeListings = await listMarketplaceListings();
   const supportCases = await listSupportCases();
   const operations = await getAdminOperations(filters);
+  const queue = await listModerationQueue();
   const gmv = activeListings.reduce((sum, listing) => sum + listing.price, 0);
   const commission = Math.round(gmv * COMMISSION_RATE);
 
@@ -1196,7 +1635,7 @@ export async function getAdminOverview(filters: AdminOperationFilters = {}) {
     activeListings,
     gmv,
     commission,
-    queue: adminQueue,
+    queue,
     supportCases,
     operations
   };
@@ -2044,6 +2483,108 @@ export async function createAiOutreachDraft(input: {
   return record;
 }
 
+function getLocalListings() {
+  return [...seedListings.map(applyLocalListingOverride), ...localDraftListings.map(applyLocalListingOverride)].filter(
+    (listing): listing is DomainListing => Boolean(listing)
+  );
+}
+
+function applyLocalListingOverride(listing: DomainListing | null | undefined) {
+  if (!listing) {
+    return null;
+  }
+
+  const status = localListingStatusOverrides.get(listing.id);
+  return status ? { ...listing, status } : listing;
+}
+
+function isOpenOfferStatus(status: Offer["status"]) {
+  return status === "pending" || status === "countered";
+}
+
+function isListingOwnershipVerified(status: DomainListing["status"], verification: unknown) {
+  return status === "active" || Boolean((verification as { verifiedAt?: string; status?: string })?.verifiedAt);
+}
+
+function ownershipVerificationStatus(verification: unknown) {
+  const status = (verification as { status?: unknown })?.status;
+  return typeof status === "string" ? status : "pending";
+}
+
+async function listSearchAlertsForDelivery(cadence: SearchAlertItem["cadence"]) {
+  if (!isDatabaseConfigured()) {
+    return localSearchAlerts.filter((alert) => alert.active && alert.cadence === cadence);
+  }
+
+  const rows = await getPrisma().searchAlert.findMany({
+    where: {
+      active: true,
+      cadence
+    },
+    include: {
+      user: true
+    },
+    orderBy: { updatedAt: "asc" },
+    take: 100
+  });
+
+  return rows.map((row) => ({
+    id: row.id,
+    userEmail: row.user.email,
+    name: row.name,
+    filters: row.filters as DomainFilters,
+    cadence: row.cadence as SearchAlertItem["cadence"],
+    active: row.active,
+    createdAt: row.createdAt.toISOString()
+  }));
+}
+
+function shouldDeliverAlert(preferences: NotificationPreferences, cadence: SearchAlertItem["cadence"]) {
+  if (cadence === "instant") return preferences.instantAlerts;
+  if (cadence === "daily") return preferences.dailyDigest;
+  return preferences.weeklyDigest;
+}
+
+function normalizeNotificationPreferences(value: unknown): NotificationPreferences {
+  const candidate = typeof value === "object" && value !== null ? (value as Partial<NotificationPreferences>) : {};
+  return {
+    instantAlerts: candidate.instantAlerts ?? defaultNotificationPreferences.instantAlerts,
+    dailyDigest: candidate.dailyDigest ?? defaultNotificationPreferences.dailyDigest,
+    weeklyDigest: candidate.weeklyDigest ?? defaultNotificationPreferences.weeklyDigest,
+    offerUpdates: candidate.offerUpdates ?? defaultNotificationPreferences.offerUpdates,
+    transactionUpdates: candidate.transactionUpdates ?? defaultNotificationPreferences.transactionUpdates,
+    supportUpdates: candidate.supportUpdates ?? defaultNotificationPreferences.supportUpdates
+  };
+}
+
+function normalizeAdminQueueItem(value: unknown, fallbackId: string, fallbackCreatedAt: Date): AdminQueueItem {
+  const candidate = typeof value === "object" && value !== null ? (value as Partial<AdminQueueItem>) : {};
+  return {
+    id: typeof candidate.id === "string" ? candidate.id : fallbackId,
+    type: isAdminQueueType(candidate.type) ? candidate.type : "fraud",
+    title: typeof candidate.title === "string" ? candidate.title : "Moderation flag",
+    severity: isSeverity(candidate.severity) ? candidate.severity : "medium",
+    status: candidate.status === "reviewing" || candidate.status === "resolved" ? candidate.status : "open",
+    createdAt: typeof candidate.createdAt === "string" ? candidate.createdAt : fallbackCreatedAt.toISOString()
+  };
+}
+
+function isAdminQueueType(value: unknown): value is AdminQueueItem["type"] {
+  return value === "trademark" || value === "fraud" || value === "ownership" || value === "escrow" || value === "ai_approval";
+}
+
+function isSeverity(value: unknown): value is AdminQueueItem["severity"] {
+  return value === "low" || value === "medium" || value === "high";
+}
+
+function severityRank(severity: AdminQueueItem["severity"]) {
+  return severity === "high" ? 3 : severity === "medium" ? 2 : 1;
+}
+
+function rate(numerator: number, denominator: number) {
+  return denominator ? Math.round((numerator / denominator) * 100) : 0;
+}
+
 function listingInclude() {
   return domainListingInclude;
 }
@@ -2181,6 +2722,21 @@ function mapOffer(row: NonNullable<PrismaOffer>): Offer {
   };
 }
 
+function mapOfferInbox(row: NonNullable<PrismaOffer>): OfferInboxItem {
+  return {
+    id: row.id,
+    domain: row.listing.domain,
+    listingId: row.listingId,
+    buyerEmail: row.buyer.email,
+    sellerName: row.listing.seller.sellerProfile?.publicName ?? row.listing.seller.displayName ?? row.listing.seller.email,
+    amount: centsToDollars(row.amountCents),
+    status: row.status.toLowerCase() as Offer["status"],
+    buyerVerificationTier: mapVerificationFromPrisma(row.buyerVerificationTier),
+    expiresAt: row.expiresAt.toISOString(),
+    updatedAt: row.updatedAt.toISOString()
+  };
+}
+
 function mapTransaction(row: NonNullable<PrismaTransaction>): Transaction {
   return {
     id: row.id,
@@ -2222,10 +2778,13 @@ function mapVerificationFromPrisma(tier: string): VerificationTier {
   return tier.toLowerCase() as VerificationTier;
 }
 
-function mapListingStatusToPrisma(status: "active" | "flagged" | "archived") {
+function mapListingStatusToPrisma(status: DomainListing["status"]) {
   const map = {
+    draft: PrismaListingStatus.DRAFT,
+    pending_verification: PrismaListingStatus.PENDING_VERIFICATION,
     active: PrismaListingStatus.ACTIVE,
     flagged: PrismaListingStatus.FLAGGED,
+    sold: PrismaListingStatus.SOLD,
     archived: PrismaListingStatus.ARCHIVED
   };
 

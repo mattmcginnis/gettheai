@@ -6,6 +6,7 @@ import {
   adminUpdateSupportCase,
   adminVerifySeller,
   retryTransactionEscrowHandoff,
+  updateSellerListingStatus,
   updateTransactionOperations
 } from "@/lib/repository";
 
@@ -37,6 +38,26 @@ describe("admin workflow fallbacks", () => {
       listingId: "dom-1",
       status: "flagged",
       mode: "local"
+    });
+  });
+
+  it("lets sellers update their own listing status in local mode", async () => {
+    const result = await updateSellerListingStatus({
+      listingId: "dom-1",
+      status: "archived",
+      actorEmail: "seller@example.com",
+      actorRole: "seller"
+    });
+
+    expect(result).toMatchObject({
+      action: "seller_listing_status",
+      mode: "local"
+    });
+    await updateSellerListingStatus({
+      listingId: "dom-1",
+      status: "active",
+      actorEmail: "seller@example.com",
+      actorRole: "seller"
     });
   });
 

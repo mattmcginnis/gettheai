@@ -15,6 +15,7 @@ import {
   Users
 } from "lucide-react";
 import { AdminActionsPanel } from "@/components/admin-actions-panel";
+import { AlertDeliveryPanel } from "@/components/alert-delivery-panel";
 import { MetricCard } from "@/components/metric-card";
 import { requirePageRole } from "@/lib/page-auth";
 import { formatMoney } from "@/lib/appraisal";
@@ -166,8 +167,13 @@ export default async function AdminPage({
               <Link href="/admin/observability" className="focus-ring rounded-md border border-line px-4 py-2 text-sm font-semibold hover:border-mint hover:text-mint">
                 View observability
               </Link>
+              <Link href="/admin/analytics" className="focus-ring rounded-md border border-line px-4 py-2 text-sm font-semibold hover:border-mint hover:text-mint">
+                View analytics
+              </Link>
             </div>
           </div>
+
+          <AlertDeliveryPanel />
 
           <div className="rounded-md border border-line bg-white p-5 shadow-panel">
             <div className="flex items-center gap-2">

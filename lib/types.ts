@@ -207,3 +207,61 @@ export interface SupportCaseItem {
   escalationNotes?: string;
   createdAt: string;
 }
+
+export interface SellerInventoryItem {
+  id: string;
+  domain: string;
+  status: ListingStatus;
+  listingType: ListingType;
+  price: number;
+  minimumOffer: number;
+  ownershipVerified: boolean;
+  verificationStatus: string;
+  offerCount: number;
+  openOfferCount: number;
+  updatedAt: string;
+}
+
+export interface OfferInboxItem {
+  id: string;
+  domain: string;
+  listingId: string;
+  buyerEmail: string;
+  sellerName: string;
+  amount: number;
+  status: OfferStatus;
+  buyerVerificationTier: VerificationTier;
+  expiresAt: string;
+  updatedAt: string;
+}
+
+export interface NotificationPreferences {
+  instantAlerts: boolean;
+  dailyDigest: boolean;
+  weeklyDigest: boolean;
+  offerUpdates: boolean;
+  transactionUpdates: boolean;
+  supportUpdates: boolean;
+}
+
+export interface LaunchGate {
+  id: string;
+  label: string;
+  status: "pass" | "warn" | "fail";
+  detail: string;
+}
+
+export interface OperationalAnalytics {
+  appraisalCount: number;
+  listingCount: number;
+  appraisalToListingRate: number;
+  searchCount: number;
+  detailViewCount: number;
+  searchToDetailRate: number;
+  offerCount: number;
+  offerRate: number;
+  escrowStartedCount: number;
+  escrowStartRate: number;
+  completedGmv: number;
+  failedHandoffCount: number;
+}

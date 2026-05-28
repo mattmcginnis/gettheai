@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { searchMarketplaceListings } from "@/lib/repository";
+import { recordAnalyticsEvent, searchMarketplaceListings } from "@/lib/repository";
 import type { DomainFilters } from "@/lib/types";
 
 export async function GET(request: NextRequest) {
@@ -17,12 +17,22 @@ export async function GET(request: NextRequest) {
     sort: (params.get("sort") ?? "featured") as DomainFilters["sort"]
   };
 
-  return NextResponse.json(
-    await searchMarketplaceListings(filters, {
-      page: numberParam(params.get("page")) ?? 1,
-      limit: numberParam(params.get("limit")) ?? 12
-    })
-  );
+  const search = await searchMarketplaceListings(filters, {
+    page: numberParam(params.get("page")) ?? 1,
+    limit: numberParam(params.get("limit")) ?? 12
+  });
+
+  await recordAnalyticsEvent({
+    eventType: "analytics.search.performed",
+    entityType: "domain_search",
+    entityId: filters.q ?? "all",
+    metadata: {
+      filters,
+      total: search.pagination.total
+    }
+  });
+
+  return NextResponse.json(search);
 }
 
 function numberParam(value: string | null) {

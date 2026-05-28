@@ -5,10 +5,12 @@ import { ButtonLink } from "@/components/button-link";
 import { DomainCard } from "@/components/domain-card";
 import { MetricCard } from "@/components/metric-card";
 import { NotificationFeed } from "@/components/notification-feed";
+import { NotificationPreferencesPanel } from "@/components/notification-preferences-panel";
+import { OfferInbox } from "@/components/offer-inbox";
 import { SupportWorkbench } from "@/components/support-workbench";
 import { TransactionTimeline } from "@/components/transaction-timeline";
 import { requirePageRole } from "@/lib/page-auth";
-import { getFeaturedListings } from "@/lib/repository";
+import { getFeaturedListings, getNotificationPreferences, listOfferInbox } from "@/lib/repository";
 
 export const metadata: Metadata = {
   title: "Buyer Desk"
@@ -16,7 +18,12 @@ export const metadata: Metadata = {
 
 export default async function BuyerPage() {
   const session = await requirePageRole(["buyer", "seller", "admin"], "/buyer");
-  const listings = await getFeaturedListings(2);
+  const [listings, offers, notificationPreferences] = await Promise.all([
+    getFeaturedListings(2),
+    listOfferInbox({ email: session.email, role: session.role === "admin" ? "admin" : "buyer" }),
+    getNotificationPreferences(session.email)
+  ]);
+  const openOffers = offers.filter((offer) => offer.status === "pending" || offer.status === "countered").length;
 
   return (
     <main>
@@ -35,9 +42,9 @@ export default async function BuyerPage() {
 
       <section className="py-8">
         <div className="shell grid gap-4 md:grid-cols-3">
-          <MetricCard label="Verification" value="2FA" detail="Ready for offers below $5K." icon={<ShieldCheck size={20} />} />
+          <MetricCard label="Verification" value={session.twoFactorEnabled ? "2FA" : "Email"} detail="Offer limits follow verification tier." icon={<ShieldCheck size={20} />} />
           <MetricCard label="Watchlist" value="4" detail="Saved domains and price alerts." icon={<BookmarkCheck size={20} />} />
-          <MetricCard label="Alerts" value="Weekly" detail="Digest for matched searches." icon={<Bell size={20} />} />
+          <MetricCard label="Open offers" value={String(openOffers)} detail="Pending or countered seller responses." icon={<Bell size={20} />} />
         </div>
       </section>
 
@@ -52,8 +59,10 @@ export default async function BuyerPage() {
             </div>
           </div>
           <div className="grid gap-6">
+            <OfferInbox offers={offers} title="Buyer offer inbox" />
             <BuyerActions defaultListingId={listings[0]?.id ?? "dom-1"} />
             <NotificationFeed recipientEmail={session.email} />
+            <NotificationPreferencesPanel email={session.email} preferences={notificationPreferences} />
             <TransactionTimeline />
             <SupportWorkbench />
           </div>

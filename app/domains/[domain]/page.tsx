@@ -4,7 +4,7 @@ import { BadgeCheck, Clock, ExternalLink, ShieldCheck, Sparkles } from "lucide-r
 import { OfferPanel } from "@/components/offer-panel";
 import { TransactionTimeline } from "@/components/transaction-timeline";
 import { formatMoney } from "@/lib/appraisal";
-import { getMarketplaceListing } from "@/lib/repository";
+import { getMarketplaceListing, recordAnalyticsEvent } from "@/lib/repository";
 
 export async function generateMetadata({
   params
@@ -38,6 +38,16 @@ export default async function DomainDetailPage({
   if (!listing) {
     notFound();
   }
+
+  await recordAnalyticsEvent({
+    eventType: "analytics.listing.viewed",
+    entityType: "domain_listing",
+    entityId: listing.id,
+    metadata: {
+      domain: listing.domain,
+      price: listing.price
+    }
+  });
 
   return (
     <main>
