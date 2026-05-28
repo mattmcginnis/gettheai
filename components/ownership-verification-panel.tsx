@@ -8,6 +8,8 @@ export function OwnershipVerificationPanel() {
   const [token, setToken] = useState("");
   const [method, setMethod] = useState<"dns_txt" | "nameserver" | "registrar" | "manual">("manual");
   const [message, setMessage] = useState("");
+  const [verificationMode, setVerificationMode] = useState("");
+  const [verifiedDomain, setVerifiedDomain] = useState("");
   const [loading, setLoading] = useState(false);
 
   async function verify() {
@@ -26,7 +28,16 @@ export function OwnershipVerificationPanel() {
     });
     const payload = await response.json();
     setLoading(false);
-    setMessage(response.ok ? `${payload.listing.domain} verified via ${payload.verification.method}.` : payload.error);
+    if (!response.ok) {
+      setMessage(payload.error);
+      setVerificationMode("");
+      setVerifiedDomain("");
+      return;
+    }
+
+    setVerifiedDomain(payload.listing.domain);
+    setVerificationMode(`${payload.verification.mode} · ${payload.verification.method}`);
+    setMessage(`${payload.listing.domain} verified via ${payload.verification.method}.`);
   }
 
   return (
@@ -59,6 +70,13 @@ export function OwnershipVerificationPanel() {
         Verify
       </button>
       {message ? <p className="mt-4 rounded-md bg-paper p-3 text-sm text-ink/72">{message}</p> : null}
+      {verificationMode ? (
+        <div className="mt-3 grid gap-2 rounded-md border border-line p-3 text-xs text-ink/62">
+          <p><span className="font-bold uppercase text-ink/45">Domain</span> {verifiedDomain}</p>
+          <p><span className="font-bold uppercase text-ink/45">Verification</span> {verificationMode}</p>
+          <p><span className="font-bold uppercase text-ink/45">Next</span> Active listings can receive offers and Escrow.com handoffs.</p>
+        </div>
+      ) : null}
     </div>
   );
 }

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { hasRole } from "@/lib/auth";
+import { sendMarketplaceNotification } from "@/lib/notifications";
 import {
   adminAddTransactionDisputeNote,
   adminCancelOffer,
@@ -58,18 +59,71 @@ export async function POST(request: NextRequest) {
     }
 
     if (body.action === "seller_verification") {
-      return NextResponse.json(await adminVerifySeller(body));
+      const result = await adminVerifySeller(body);
+      const seller = "seller" in result ? result.seller : null;
+      await sendMarketplaceNotification({
+        to: body.sellerEmail,
+        subject: "GetThe seller verification updated",
+        textBody: `Your seller verification tier is now ${body.verificationTier}.`,
+        tag: "seller-verification-updated",
+        entityType: "user",
+        entityId: seller?.id ?? body.sellerEmail,
+        recipientRole: "seller",
+        metadata: { verificationTier: body.verificationTier }
+      });
+      return NextResponse.json(result);
     }
 
     if (body.action === "offer_cancel") {
-      return NextResponse.json(await adminCancelOffer(body));
+      const result = await adminCancelOffer(body);
+      const offer = "offer" in result ? result.offer : null;
+      if (offer) {
+        await sendMarketplaceNotification({
+          to: offer.buyerEmail,
+          subject: "GetThe offer canceled",
+          textBody: `An admin canceled offer ${offer.id}. Reason: ${body.note}`,
+          tag: "offer-canceled",
+          entityType: "offer",
+          entityId: offer.id,
+          recipientRole: "buyer"
+        });
+      }
+      return NextResponse.json(result);
     }
 
     if (body.action === "support_update") {
-      return NextResponse.json(await adminUpdateSupportCase(body));
+      const result = await adminUpdateSupportCase(body);
+      const supportCase = "supportCase" in result ? result.supportCase : null;
+      if (supportCase) {
+        await sendMarketplaceNotification({
+          to: supportCase.requesterEmail,
+          subject: "GetThe support case updated",
+          textBody: `Support case ${supportCase.id} is now ${supportCase.status}.`,
+          tag: "support-updated",
+          entityType: "support_case",
+          entityId: supportCase.id,
+          recipientRole: "support",
+          metadata: { status: supportCase.status }
+        });
+      }
+      return NextResponse.json(result);
     }
 
-    return NextResponse.json(await adminAddTransactionDisputeNote(body));
+    const result = await adminAddTransactionDisputeNote(body);
+    const transaction = "transaction" in result ? result.transaction : null;
+    if (transaction) {
+      await sendMarketplaceNotification({
+        to: transaction.buyerEmail,
+        subject: "GetThe transaction dispute note added",
+        textBody: `An admin added a dispute note to transaction ${transaction.id}: ${body.note}`,
+        tag: "transaction-dispute-note",
+        entityType: "transaction",
+        entityId: transaction.id,
+        recipientRole: "buyer"
+      });
+    }
+
+    return NextResponse.json(result);
   } catch (error) {
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Invalid admin action request." },

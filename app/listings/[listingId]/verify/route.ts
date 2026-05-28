@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { hasRole } from "@/lib/auth";
+import { sendMarketplaceNotification } from "@/lib/notifications";
 import { verifyListingOwnership } from "@/lib/repository";
 
 const schema = z.object({
@@ -20,7 +21,25 @@ export async function POST(
   try {
     const { listingId } = await params;
     const body = schema.parse(await request.json());
-    return NextResponse.json(await verifyListingOwnership({ listingId, ...body }));
+    const result = await verifyListingOwnership({ listingId, ...body });
+
+    if (body.actorEmail) {
+      await sendMarketplaceNotification({
+        to: body.actorEmail,
+        subject: "GetThe ownership verification complete",
+        textBody: `${result.listing.domain} was verified via ${result.verification.method}.`,
+        tag: "listing-verified",
+        entityType: "domain_listing",
+        entityId: result.listing.id,
+        recipientRole: "seller",
+        metadata: {
+          method: result.verification.method,
+          mode: result.verification.mode
+        }
+      });
+    }
+
+    return NextResponse.json(result);
   } catch (error) {
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Ownership verification failed." },

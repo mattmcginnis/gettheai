@@ -4,7 +4,8 @@ import {
   adminCancelOffer,
   adminUpdateListingStatus,
   adminUpdateSupportCase,
-  adminVerifySeller
+  adminVerifySeller,
+  updateTransactionOperations
 } from "@/lib/repository";
 
 const originalDatabaseUrl = process.env.DATABASE_URL;
@@ -75,5 +76,23 @@ describe("admin workflow fallbacks", () => {
     expect(offer).toMatchObject({ action: "offer_cancel", status: "canceled" });
     expect(support).toMatchObject({ action: "support_update", status: "escalated" });
     expect(dispute).toMatchObject({ action: "transaction_dispute", status: "disputed" });
+  });
+
+  it("records transaction operation updates in local mode", async () => {
+    const result = await updateTransactionOperations({
+      transactionId: "txn_123",
+      status: "buyer_funded",
+      checklistUpdates: [{ index: 0, done: true }],
+      actorEmail: "admin@getthe.com",
+      note: "Buyer funding verified."
+    });
+
+    expect(result).toMatchObject({
+      action: "transaction_operations",
+      transactionId: "txn_123",
+      status: "buyer_funded",
+      checklistUpdates: [{ index: 0, done: true }],
+      mode: "local"
+    });
   });
 });

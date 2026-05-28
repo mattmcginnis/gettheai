@@ -4,6 +4,7 @@ import {
   verifyEscrowWebhookSignature,
   verifyEscrowWebhookTimestamp
 } from "@/lib/escrow";
+import { sendMarketplaceNotification } from "@/lib/notifications";
 import { updateTransactionFromEscrowEvent } from "@/lib/repository";
 
 export async function POST(request: NextRequest) {
@@ -24,5 +25,23 @@ export async function POST(request: NextRequest) {
   }
 
   const event = JSON.parse(rawBody || "{}");
-  return NextResponse.json(await updateTransactionFromEscrowEvent(event));
+  const result = await updateTransactionFromEscrowEvent(event);
+
+  if ("transaction" in result && result.transaction?.buyerEmail) {
+    await sendMarketplaceNotification({
+      to: result.transaction.buyerEmail,
+      subject: "GetThe Escrow.com status updated",
+      textBody: `Escrow.com reported ${event.status ?? "a status update"} for transaction ${result.transaction.id}.`,
+      tag: "escrow-status-updated",
+      entityType: "transaction",
+      entityId: result.transaction.id,
+      recipientRole: "buyer",
+      metadata: {
+        escrowId: result.transaction.escrowId,
+        mappedStatus: result.mappedStatus
+      }
+    });
+  }
+
+  return NextResponse.json(result);
 }

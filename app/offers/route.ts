@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { createOfferRecord } from "@/lib/repository";
-import { sendTransactionalEmail } from "@/lib/email";
+import { sendMarketplaceNotification } from "@/lib/notifications";
 
 const schema = z.object({
   listingId: z.string(),
@@ -14,12 +14,19 @@ export async function POST(request: NextRequest) {
   try {
     const body = schema.parse(await request.json());
     const offer = await createOfferRecord(body);
-    await sendTransactionalEmail({
+    await sendMarketplaceNotification({
       to: body.buyerEmail,
       subject: "GetThe offer received",
       textBody: `Your offer for listing ${body.listingId} was recorded and is pending seller review.`,
-      tag: "offer-created"
-    }).catch(() => null);
+      tag: "offer-created",
+      entityType: "offer",
+      entityId: offer.id,
+      recipientRole: "buyer",
+      metadata: {
+        listingId: body.listingId,
+        amount: body.amount
+      }
+    });
 
     return NextResponse.json(
       { offer },

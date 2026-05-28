@@ -53,14 +53,20 @@ async function main() {
     select: { id: true }
   });
   const offerIds = scopedOffers.map((offer) => offer.id);
-  const entityIds = [...listingIds, ...transactionIds, ...offerIds];
+
+  const scopedSupportCases = await prisma.supportCase.findMany({
+    where: {
+      OR: [{ requesterId: { in: userIds } }, { transactionId: { in: transactionIds } }]
+    },
+    select: { id: true }
+  });
+  const supportCaseIds = scopedSupportCases.map((supportCase) => supportCase.id);
+  const entityIds = [...listingIds, ...transactionIds, ...offerIds, ...userIds, ...supportCaseIds];
 
   const results = {};
 
   results.supportCases = await prisma.supportCase.deleteMany({
-    where: {
-      OR: [{ requesterId: { in: userIds } }, { transactionId: { in: transactionIds } }]
-    }
+    where: { id: { in: supportCaseIds } }
   });
   results.auditEvents = await prisma.auditEvent.deleteMany({
     where: {

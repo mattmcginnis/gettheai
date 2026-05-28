@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { BadgeDollarSign, ExternalLink, ShieldCheck, UserCheck } from "lucide-react";
+import { TransactionOperationsPanel } from "@/components/transaction-operations-panel";
 import { TransactionTimeline } from "@/components/transaction-timeline";
 import { formatMoney } from "@/lib/appraisal";
 import { getTransactionDetail } from "@/lib/repository";
@@ -75,6 +76,7 @@ export default async function TransactionDetailPage({
 
           <div className="grid gap-6">
             <TransactionTimeline transaction={transaction} />
+            <TransactionOperationsPanel transaction={transaction} />
             <div className="rounded-md border border-line bg-white p-5 shadow-panel">
               <h2 className="text-xl font-bold">Parties</h2>
               <div className="mt-4 grid gap-3 text-sm">

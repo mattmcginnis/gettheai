@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { hasRole } from "@/lib/auth";
+import { sendMarketplaceNotification } from "@/lib/notifications";
 import { decideOffer } from "@/lib/repository";
 
 const schema = z.object({
@@ -20,7 +21,27 @@ export async function POST(
   try {
     const { offerId } = await params;
     const body = schema.parse(await request.json());
-    return NextResponse.json(await decideOffer({ offerId, ...body }));
+    const result = await decideOffer({ offerId, ...body });
+    const offer = "offer" in result ? result.offer : null;
+
+    if (offer?.buyerEmail) {
+      await sendMarketplaceNotification({
+        to: offer.buyerEmail,
+        subject: `GetThe offer ${offer.status.replaceAll("_", " ")}`,
+        textBody: `Your offer for listing ${offer.listingId} is now ${offer.status}. Seller note: ${body.note}`,
+        tag: `offer-${offer.status}`,
+        entityType: "offer",
+        entityId: offer.id,
+        recipientRole: "buyer",
+        metadata: {
+          action: body.action,
+          amount: offer.amount,
+          transactionId: result.transaction?.id
+        }
+      });
+    }
+
+    return NextResponse.json(result);
   } catch (error) {
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Invalid offer decision request." },

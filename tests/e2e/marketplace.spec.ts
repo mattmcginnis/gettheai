@@ -84,6 +84,22 @@ test("buyer can discover, appraise, watch, alert, and request support", async ({
     }
   });
   expect(dispute.ok()).toBeTruthy();
+
+  const operation = await request.post(`/transactions/${transactionBody.transaction.id}/operations`, {
+    headers: { "x-getthe-role": "admin" },
+    data: {
+      status: "buyer_funded",
+      checklistUpdates: [{ index: 0, done: true }],
+      actorEmail: "admin@getthe.com",
+      note: "Playwright buyer funding verified."
+    }
+  });
+  expect(operation.ok()).toBeTruthy();
+
+  const adminDetail = await request.get(`/admin/transactions/${transactionBody.transaction.id}`, {
+    headers: { "x-getthe-role": "admin" }
+  });
+  expect(adminDetail.ok()).toBeTruthy();
 });
 
 test("seller/admin workflow creates listing, verifies ownership, scans, and drafts outreach", async ({ page, request }, testInfo) => {

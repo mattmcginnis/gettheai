@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { sendTransactionalEmail } from "@/lib/email";
+import { sendMarketplaceNotification } from "@/lib/notifications";
 import { createTransactionRecord } from "@/lib/repository";
 
 const schema = z.object({
@@ -14,12 +14,20 @@ export async function POST(request: NextRequest) {
   try {
     const body = schema.parse(await request.json());
     const transaction = await createTransactionRecord(body);
-    await sendTransactionalEmail({
+    await sendMarketplaceNotification({
       to: body.buyerEmail,
       subject: "GetThe Escrow.com handoff started",
       textBody: `Your transaction for listing ${body.listingId} is ready: ${transaction.escrowUrl}`,
-      tag: "transaction-started"
-    }).catch(() => null);
+      tag: "transaction-started",
+      entityType: "transaction",
+      entityId: transaction.id,
+      recipientRole: "buyer",
+      metadata: {
+        listingId: body.listingId,
+        escrowId: transaction.escrowId,
+        amount: transaction.amount
+      }
+    });
 
     return NextResponse.json({ transaction }, { status: 201 });
   } catch (error) {

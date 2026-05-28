@@ -59,6 +59,7 @@ npm run build
 - `POST /offers` creates a verified buyer offer and enforces tiered verification.
 - `POST /offers/[offerId]/decision` lets sellers/admins accept, reject, or counter an offer.
 - `POST /transactions` creates an Escrow.com handoff transaction and 7% commission record.
+- `POST /transactions/[transactionId]/operations` lets admins update transaction status, transfer checklist items, and operation notes.
 - `POST /webhooks/escrow` maps Escrow.com events into internal transaction status.
 - `GET /api/auth/me` returns the current local or Clerk-backed auth session.
 - `GET /api/health` reports DB, search, escrow, AI, and storage integration modes.
@@ -131,6 +132,8 @@ npm run preview:build
 npm run preview:deploy
 ```
 
+CI runs in `.github/workflows/ci.yml` with Postgres, Meilisearch, Prisma migrations, unit tests, build, smoke data, cleanup, and Chromium Playwright coverage. Staging deploys use `.github/workflows/staging.yml` plus the checklist in [staging deployment](docs/staging-deployment.md).
+
 ## Production Integration Points
 
 - Clerk: set Clerk keys to render Clerk auth components and enable Clerk middleware. Roles are read from session claims or metadata (`role`) and privileged seller/admin routes require a 2FA/MFA signal before access. Local role headers are ignored once Clerk keys are configured unless `ALLOW_LOCAL_AUTH_FALLBACK=true`.
@@ -154,6 +157,7 @@ npm run preview:deploy
 
 - [Private beta runbook](docs/private-beta-runbook.md)
 - [Provider setup](docs/provider-setup.md)
+- [Staging deployment](docs/staging-deployment.md)
 
 ## Verification Completed
 

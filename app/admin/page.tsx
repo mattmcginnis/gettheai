@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import Link from "next/link";
 import {
   Activity,
   BadgeDollarSign,
@@ -80,6 +81,7 @@ export default async function AdminPage() {
                     key={user.id}
                     title={user.email}
                     meta={`${user.role} · ${user.verificationTier} · ${user.twoFactorEnabled ? "2FA" : "2FA missing"}`}
+                    href={`/admin/users/${user.id}`}
                   />
                 ))
               ) : (
@@ -94,7 +96,8 @@ export default async function AdminPage() {
             rows={operations.listings.map((listing) => ({
               id: listing.id,
               title: listing.domain,
-              meta: `${listing.status} · ${listing.seller} · ${formatMoney(listing.price)}`
+              meta: `${listing.status} · ${listing.seller} · ${formatMoney(listing.price)}`,
+              href: `/admin/listings/${listing.id}`
             }))}
           />
 
@@ -104,7 +107,8 @@ export default async function AdminPage() {
             rows={operations.offers.map((offer) => ({
               id: offer.id,
               title: `${offer.domain} · ${formatMoney(offer.amount)}`,
-              meta: `${offer.status} · ${offer.buyerEmail}`
+              meta: `${offer.status} · ${offer.buyerEmail}`,
+              href: `/admin/offers/${offer.id}`
             }))}
             empty="No persisted offers yet."
           />
@@ -115,7 +119,8 @@ export default async function AdminPage() {
             rows={operations.transactions.map((transaction) => ({
               id: transaction.id,
               title: `${transaction.domain} · ${formatMoney(transaction.amount)}`,
-              meta: `${transaction.status} · ${transaction.escrowId ?? "no escrow id"}`
+              meta: `${transaction.status} · ${transaction.escrowId ?? "no escrow id"}`,
+              href: `/admin/transactions/${transaction.id}`
             }))}
             empty="No persisted transactions yet."
           />
@@ -126,7 +131,8 @@ export default async function AdminPage() {
             rows={operations.auditEvents.map((event) => ({
               id: event.id,
               title: event.eventType,
-              meta: `${event.entityType} · ${event.actorEmail ?? "system"}`
+              meta: `${event.entityType} · ${event.actorEmail ?? "system"}`,
+              href: `/admin/audit/${event.id}`
             }))}
             empty="No persisted audit events yet."
           />
@@ -175,10 +181,10 @@ export default async function AdminPage() {
             <div className="mt-5 grid gap-3">
               {supportCases.length ? (
                 supportCases.map((supportCase) => (
-                  <div key={supportCase.id} className="rounded-md border border-line p-3">
+                  <Link key={supportCase.id} href={`/admin/support/${supportCase.id}`} className="focus-ring rounded-md border border-line p-3 hover:border-sky">
                     <p className="text-sm font-semibold">{supportCase.subject}</p>
                     <p className="mt-1 text-xs text-ink/55">{supportCase.requesterEmail} · {supportCase.status}</p>
-                  </div>
+                  </Link>
                 ))
               ) : (
                 <p className="rounded-md bg-paper p-3 text-sm text-ink/62">No persisted support cases yet.</p>
@@ -199,7 +205,7 @@ function AdminPanel({
 }: {
   icon: React.ReactNode;
   title: string;
-  rows: Array<{ id: string; title: string; meta: string }>;
+  rows: Array<{ id: string; title: string; meta: string; href?: string }>;
   empty?: string;
 }) {
   return (
@@ -209,17 +215,27 @@ function AdminPanel({
         <h2 className="text-2xl font-bold">{title}</h2>
       </div>
       <div className="mt-5 grid gap-3">
-        {rows.length ? rows.map((row) => <AdminRow key={row.id} title={row.title} meta={row.meta} />) : <p className="rounded-md bg-paper p-3 text-sm text-ink/62">{empty}</p>}
+        {rows.length ? rows.map((row) => <AdminRow key={row.id} title={row.title} meta={row.meta} href={row.href} />) : <p className="rounded-md bg-paper p-3 text-sm text-ink/62">{empty}</p>}
       </div>
     </div>
   );
 }
 
-function AdminRow({ title, meta }: { title: string; meta: string }) {
-  return (
-    <div className="rounded-md border border-line p-3">
+function AdminRow({ title, meta, href }: { title: string; meta: string; href?: string }) {
+  const content = (
+    <>
       <p className="text-sm font-semibold">{title}</p>
       <p className="mt-1 text-xs text-ink/55">{meta}</p>
+    </>
+  );
+
+  return href ? (
+    <Link href={href} className="focus-ring rounded-md border border-line p-3 hover:border-mint">
+      {content}
+    </Link>
+  ) : (
+    <div className="rounded-md border border-line p-3">
+      {content}
     </div>
   );
 }

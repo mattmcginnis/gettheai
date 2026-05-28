@@ -52,3 +52,9 @@
 - Configure `VERCEL_TOKEN`, `VERCEL_ORG_ID`, and `VERCEL_PROJECT_ID`.
 - Run `npm run preview:verify-env` before deploys.
 - Use `REQUIRE_PRODUCTION_SECRETS=true` in CI when missing provider secrets should fail the build.
+
+## Staging
+
+- Use `.env.staging.example` as the provider checklist.
+- Configure the GitHub `staging` environment secrets documented in `docs/staging-deployment.md`.
+- Run the `Staging Deploy` workflow after migrations and provider sandbox credentials are ready.
