@@ -31,11 +31,10 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-      meilisearch:
-        condition: service_started
     environment:
       DATABASE_URL: postgresql://getthe:getthe@postgres:5432/getthe
       NEXT_PUBLIC_APP_URL: http://localhost:3000
+      SEARCH_INDEX_PROVIDER: postgres
       MEILISEARCH_HOST: http://meilisearch:7700
       MEILISEARCH_API_KEY: getthe_dev_master_key
       SEARCH_INDEX_NAME: domain_listings

@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { escapePostgresLikePattern } from "@/lib/postgres-search";
 import { searchListings } from "@/lib/search";
 
 describe("searchListings", () => {
@@ -14,5 +15,9 @@ describe("searchListings", () => {
     const results = searchListings({ q: "agent" });
 
     expect(results.some((listing) => listing.domain === "agentforge.ai")).toBe(true);
+  });
+
+  it("escapes postgres LIKE wildcards for literal search", () => {
+    expect(escapePostgresLikePattern("agent_%\\")).toBe("agent\\_\\%\\\\");
   });
 });

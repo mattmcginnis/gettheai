@@ -2,7 +2,7 @@
 
 ## Goal
 
-Staging should look like production, but use sandbox/provider test accounts and non-production data. It should run with Clerk enabled, local auth fallback disabled, Postgres persistence, search indexing, storage, Postmark, and Escrow.com handoff or sandbox API mode.
+Staging should look like production, but use sandbox/provider test accounts and non-production data. It should run with Clerk enabled, local auth fallback disabled, Postgres persistence, Postgres marketplace search by default, storage, Postmark, and Escrow.com handoff or sandbox API mode.
 
 ## Required GitHub Environment
 
@@ -23,8 +23,6 @@ Create a GitHub environment named `staging` and add these secrets:
 - `STAGING_ESCROW_WEBHOOK_SECRET`
 - `STAGING_POSTMARK_SERVER_TOKEN`
 - `STAGING_POSTMARK_FROM_EMAIL`
-- `STAGING_MEILISEARCH_HOST`
-- `STAGING_MEILISEARCH_API_KEY`
 - `STAGING_S3_BUCKET`
 - `STAGING_S3_REGION`
 - `STAGING_S3_ACCESS_KEY_ID`
@@ -35,6 +33,14 @@ Optional storage secrets:
 - `STAGING_S3_ENDPOINT`
 - `STAGING_S3_PUBLIC_BASE_URL`
 
+Optional external search secrets:
+
+- `STAGING_SEARCH_INDEX_PROVIDER`
+- `STAGING_MEILISEARCH_HOST`
+- `STAGING_MEILISEARCH_API_KEY`
+- `STAGING_TYPESENSE_HOST`
+- `STAGING_TYPESENSE_API_KEY`
+
 ## Deploy Flow
 
 1. Copy `.env.staging.example` into the staging provider/environment.
@@ -42,7 +48,7 @@ Optional storage secrets:
 3. Set `REQUIRE_PRODUCTION_SECRETS=true`.
 4. Run the `Staging Deploy` workflow manually or push to the `staging` branch.
 5. Confirm `npx prisma migrate deploy` runs before the Vercel build.
-6. Run `POST /admin/search/sync` after seed/import changes.
+6. Keep `SEARCH_INDEX_PROVIDER=postgres` unless staging is intentionally testing an external search provider.
 7. Check `/api/health`, `/admin`, `/domains`, `/appraisal`, and one transaction detail page.
 8. Run `STAGING_BASE_URL="https://staging.getthe.com" npm run staging:smoke`.
 
@@ -50,7 +56,7 @@ Optional storage secrets:
 
 - Clerk auth is active and seller/admin 2FA is enforced.
 - Database-backed listing, offer, transaction, support, and audit records persist.
-- Meilisearch or configured search provider indexes active listings.
+- Postgres marketplace search returns filtered active listings without a managed search provider.
 - Postmark/local staging email logs notification events.
 - Escrow.com uses handoff mode or sandbox API credentials; GetThe does not hold funds.
 - Webhooks require HMAC signatures and fresh timestamps.

@@ -1,29 +1,48 @@
 import type { DomainListing } from "@/lib/types";
 import type { DomainFilters } from "@/lib/types";
+import { isDatabaseConfigured } from "@/lib/prisma";
 
-export type SearchIndexProvider = "local" | "meilisearch" | "typesense";
+export type SearchIndexProvider = "local" | "postgres" | "meilisearch" | "typesense";
 
 export interface SearchIndexResult {
   provider: SearchIndexProvider;
   indexed: number;
   indexName: string;
-  mode: "remote" | "local";
+  mode: "remote" | "postgres" | "local";
 }
 
 export function getSearchIndexProvider(): SearchIndexProvider {
-  if (process.env.MEILISEARCH_HOST && process.env.MEILISEARCH_API_KEY) {
+  const requestedProvider = process.env.SEARCH_INDEX_PROVIDER?.trim().toLowerCase();
+
+  if (requestedProvider === "local") {
+    return "local";
+  }
+
+  if (requestedProvider === "postgres") {
+    return isDatabaseConfigured() ? "postgres" : "local";
+  }
+
+  if (
+    requestedProvider === "meilisearch" &&
+    process.env.MEILISEARCH_HOST &&
+    process.env.MEILISEARCH_API_KEY
+  ) {
     return "meilisearch";
   }
 
-  if (process.env.TYPESENSE_HOST && process.env.TYPESENSE_API_KEY) {
+  if (
+    requestedProvider === "typesense" &&
+    process.env.TYPESENSE_HOST &&
+    process.env.TYPESENSE_API_KEY
+  ) {
     return "typesense";
   }
 
-  return "local";
+  return isDatabaseConfigured() ? "postgres" : "local";
 }
 
 export function canQuerySearchIndex() {
-  return getSearchIndexProvider() !== "local";
+  return getSearchIndexProvider() === "meilisearch";
 }
 
 export async function indexListings(listings: DomainListing[]): Promise<SearchIndexResult> {
@@ -40,7 +59,12 @@ export async function indexListings(listings: DomainListing[]): Promise<SearchIn
     return { provider, indexed: listings.length, indexName, mode: "remote" };
   }
 
-  return { provider: "local", indexed: listings.length, indexName, mode: "local" };
+  return {
+    provider,
+    indexed: listings.length,
+    indexName,
+    mode: provider === "postgres" ? "postgres" : "local"
+  };
 }
 
 export async function searchIndexedListingIds(filters: DomainFilters = {}) {

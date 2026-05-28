@@ -73,7 +73,7 @@ npm run build
 - `GET /admin/operations` returns users, listings, offers, transactions, and audit events for admin tooling.
 - `POST /admin/actions` records manual admin listing, seller verification, offer cancellation, support, and transaction dispute interventions.
 - `POST /admin/review` records admin review actions. Requires `x-getthe-role: admin` in this local scaffold.
-- `POST /admin/search/sync` indexes active listings into Meilisearch, Typesense, or local no-op mode.
+- `POST /admin/search/sync` indexes active listings into Meilisearch/Typesense only when an external provider is explicitly enabled; Postgres search is the default.
 - `POST /admin/escrow/sync` pulls Escrow.com transaction status into the internal timeline when API credentials are configured.
 - `POST /admin/moderation/scan` creates moderation flags for trademark, ownership, policy, and pricing risks.
 - `POST /ai/outreach` creates an AI outreach draft that requires human approval.
@@ -98,16 +98,16 @@ When `DATABASE_URL` is present, search, listing creation, offer creation, transa
 Docker Compose can run the production-shaped local stack:
 
 ```bash
-docker compose up --build postgres meilisearch
+npm run infra:up
 DATABASE_URL="postgresql://getthe:getthe@localhost:55432/getthe" npm run prisma:migrate
 DATABASE_URL="postgresql://getthe:getthe@localhost:55432/getthe" npm run prisma:seed
 DATABASE_URL="postgresql://getthe:getthe@localhost:55432/getthe" npm run db:smoke
 DATABASE_URL="postgresql://getthe:getthe@localhost:55432/getthe" npm run db:cleanup
 STAGING_BASE_URL="http://localhost:3000" npm run staging:smoke
-MEILISEARCH_HOST="http://localhost:7700" MEILISEARCH_API_KEY="getthe_dev_master_key" npm run dev
+SEARCH_INDEX_PROVIDER="postgres" npm run dev
 ```
 
-The `app` service is also defined for containerized preview, but running migrations before starting the app is still recommended.
+The default `infra:up` script starts Postgres only. Run `npm run infra:search` when you intentionally want to test a Meilisearch-backed index. The `app` service is also defined for containerized preview, but running migrations before starting the app is still recommended.
 
 ## E2E And Preview Deploys
 
@@ -133,7 +133,7 @@ npm run preview:build
 npm run preview:deploy
 ```
 
-CI runs in `.github/workflows/ci.yml` with Postgres, Meilisearch, Prisma migrations, unit tests, build, smoke data, cleanup, and Chromium Playwright coverage. Staging deploys use `.github/workflows/staging.yml` plus the checklist in [staging deployment](docs/staging-deployment.md).
+CI runs in `.github/workflows/ci.yml` with Postgres, Prisma migrations, unit tests, build, smoke data, cleanup, and Chromium Playwright coverage. Staging deploys use `.github/workflows/staging.yml` plus the checklist in [staging deployment](docs/staging-deployment.md).
 
 After a staging deploy, run:
 
@@ -145,7 +145,7 @@ STAGING_BASE_URL="https://staging.getthe.com" npm run staging:smoke
 
 - Clerk: set Clerk keys to render Clerk auth components and enable Clerk middleware. Roles are read from session claims or metadata (`role`) and privileged seller/admin routes require a 2FA/MFA signal before access. Local role headers are ignored once Clerk keys are configured unless `ALLOW_LOCAL_AUTH_FALLBACK=true`.
 - Postgres/Prisma: set `DATABASE_URL`, run `npm run prisma:migrate`, and seed with `npm run prisma:seed`.
-- Search: `POST /admin/search/sync` indexes `DomainListing` rows into Meilisearch/Typesense. When Meilisearch is configured, marketplace search queries Meilisearch and hydrates authoritative records from Postgres.
+- Search: marketplace search uses Postgres by default for keyword, TLD, price, category, length, traffic, confidence, listing type, and sort filters. Set `SEARCH_INDEX_PROVIDER=meilisearch` or `SEARCH_INDEX_PROVIDER=typesense` only after an external index is intentionally provisioned; `POST /admin/search/sync` is a no-op in Postgres mode and syncs active listings in external modes.
 - Storage: configure S3/R2-compatible settings to store imports, ownership evidence, reports, and review artifacts.
 - Escrow.com: set `ESCROW_API_EMAIL`, `ESCROW_API_KEY`, and `ESCROW_MODE=api` to use authenticated transaction creation and admin status sync. Webhooks support HMAC verification via `ESCROW_WEBHOOK_SECRET`.
 - Postmark: set `POSTMARK_SERVER_TOKEN` to send transactional email for offers, counters, escrow status, verification, and support.

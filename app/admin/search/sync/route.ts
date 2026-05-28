@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { hasRole } from "@/lib/auth";
-import { listMarketplaceListings } from "@/lib/repository";
+import { listAllMarketplaceListingsForIndexing } from "@/lib/repository";
 import { indexListings } from "@/lib/search-index";
 
 export async function POST(request: NextRequest) {
@@ -9,7 +9,7 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    const listings = await listMarketplaceListings();
+    const listings = await listAllMarketplaceListingsForIndexing();
     return NextResponse.json({ result: await indexListings(listings) });
   } catch (error) {
     return NextResponse.json(

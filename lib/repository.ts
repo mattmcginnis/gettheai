@@ -12,6 +12,7 @@ import { EscrowApiError, createEscrowHandoff, fetchEscrowTransaction } from "@/l
 import { parsePortfolioCsv } from "@/lib/imports";
 import { scanListingRisk } from "@/lib/moderation";
 import { getPrisma, isDatabaseConfigured } from "@/lib/prisma";
+import { searchPostgresListingIds } from "@/lib/postgres-search";
 import { adminQueue, listings as seedListings } from "@/lib/seed";
 import { canQuerySearchIndex, searchIndexedListingIds } from "@/lib/search-index";
 import { filterAndSortListings, getListing as getSeedListing } from "@/lib/search";
@@ -120,12 +121,40 @@ export async function listMarketplaceListings(filters: DomainFilters = {}) {
     }
   }
 
+  return hydrateListingsInOrder(await searchPostgresListingIds(prisma, filters));
+}
+
+async function hydrateListingsInOrder(ids: string[]) {
+  if (!ids.length) {
+    return [];
+  }
+
+  const rows = await getPrisma().domainListing.findMany({
+    where: {
+      id: {
+        in: ids
+      }
+    },
+    include: listingInclude()
+  });
+  const mapped = rows.map(mapListing);
+  const position = new Map(ids.map((id, index) => [id, index]));
+  return mapped.sort((a, b) => (position.get(a.id) ?? 0) - (position.get(b.id) ?? 0));
+}
+
+export async function listAllMarketplaceListingsForIndexing() {
+  if (!isDatabaseConfigured()) {
+    return filterAndSortListings([...seedListings, ...localDraftListings]);
+  }
+
+  const prisma = getPrisma();
   const rows = await prisma.domainListing.findMany({
+    where: { status: "ACTIVE" },
     include: listingInclude(),
-    orderBy: { createdAt: "desc" }
+    orderBy: { updatedAt: "desc" }
   });
 
-  return filterAndSortListings(rows.map(mapListing), filters);
+  return rows.map(mapListing);
 }
 
 export async function getMarketplaceListing(identifier: string) {

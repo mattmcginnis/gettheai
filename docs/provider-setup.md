@@ -17,9 +17,11 @@
 
 ## Search
 
-- Meilisearch: set `MEILISEARCH_HOST` and `MEILISEARCH_API_KEY`.
-- Typesense can be added behind the existing search-index adapter.
-- Run `POST /admin/search/sync` after seed, imports, or bulk listing edits.
+- Default launch mode is `SEARCH_INDEX_PROVIDER=postgres`, which requires no managed search service.
+- Postgres search covers marketplace keyword, TLD, price, category, length, traffic, confidence, listing type, and sort filters.
+- Meilisearch: set `SEARCH_INDEX_PROVIDER=meilisearch`, `MEILISEARCH_HOST`, and `MEILISEARCH_API_KEY`.
+- Typesense: set `SEARCH_INDEX_PROVIDER=typesense`, `TYPESENSE_HOST`, and `TYPESENSE_API_KEY`.
+- Run `POST /admin/search/sync` after seed, imports, or bulk listing edits only when an external provider is enabled.
 
 ## Escrow.com
 

@@ -23,17 +23,9 @@ jobs:
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
-      meilisearch:
-        image: getmeili/meilisearch:v1.11
-        env:
-          MEILI_MASTER_KEY: getthe_dev_master_key
-          MEILI_NO_ANALYTICS: "true"
-        ports:
-          - 7700:7700
     env:
       DATABASE_URL: postgresql://getthe:getthe@127.0.0.1:5432/getthe
-      MEILISEARCH_HOST: http://127.0.0.1:7700
-      MEILISEARCH_API_KEY: getthe_dev_master_key
+      SEARCH_INDEX_PROVIDER: postgres
       SEARCH_INDEX_NAME: domain_listings
       PLAYWRIGHT_BASE_URL: http://127.0.0.1:3000
       ALLOW_LOCAL_AUTH_FALLBACK: "true"
@@ -44,7 +36,6 @@ jobs:
         with:
           node-version: 22
           cache: npm
-      - run: curl --retry 30 --retry-all-errors --retry-delay 2 http://127.0.0.1:7700/health
       - run: npm ci
       - run: npm run prisma:generate
       - run: npx prisma migrate deploy

@@ -35,9 +35,10 @@
 ## Search Or Provider Outage
 
 1. Check `/api/health` for `search`, `escrow`, `email`, `storage`, and `ai` modes.
-2. If Meilisearch/Typesense is down, search falls back to Postgres filtering.
-3. Run `POST /admin/search/sync` after the search provider recovers.
-4. Keep Escrow.com in handoff mode if API transaction creation is degraded.
+2. If search reports `postgres`, marketplace search is already using the default database-backed path.
+3. If Meilisearch/Typesense is explicitly enabled and degraded, set `SEARCH_INDEX_PROVIDER=postgres` and restart the app.
+4. Run `POST /admin/search/sync` after the external search provider recovers.
+5. Keep Escrow.com in handoff mode if API transaction creation is degraded.
 
 ## Deploy Rollback
 

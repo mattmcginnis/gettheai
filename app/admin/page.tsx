@@ -154,8 +154,8 @@ export default async function AdminPage({
               <h2 className="text-2xl font-bold">Indexing</h2>
             </div>
             <p className="mt-4 text-sm leading-6 text-ink/68">
-              Sync active listings to Meilisearch or Typesense when credentials are configured.
-              Without credentials, the endpoint reports local search mode.
+              Marketplace search runs on Postgres by default. Sync a remote index only when
+              SEARCH_INDEX_PROVIDER is set to Meilisearch or Typesense.
             </p>
             <div className="mt-5 flex flex-wrap gap-3">
             <form action="/admin/search/sync" method="post">
