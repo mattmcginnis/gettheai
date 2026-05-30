@@ -1,7 +1,7 @@
 import type { MetadataRoute } from "next";
 
 import { getSiteUrl } from "@/app/robots";
-import { listings } from "@/lib/seed";
+import { listMarketplaceListings } from "@/lib/repository";
 
 type ChangeFrequency = MetadataRoute.Sitemap[number]["changeFrequency"];
 
@@ -14,7 +14,7 @@ const STATIC_ROUTES: Array<{ path: string; priority: number; changeFrequency: Ch
   { path: "/legal", priority: 0.2, changeFrequency: "monthly" }
 ];
 
-export default function sitemap(): MetadataRoute.Sitemap {
+export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   const siteUrl = getSiteUrl();
   const now = new Date();
 
@@ -26,13 +26,18 @@ export default function sitemap(): MetadataRoute.Sitemap {
   }));
 
   // Per-listing pages are the cold-start SEO surface: one indexable page per
-  // ACTIVE domain.
-  //
-  // NOTE: this enumerates the seed catalog, which is correct in local/preview
-  // and any seed-backed deployment. In DB-backed production this should be
-  // swapped to enumerate live inventory via the database search layer
-  // (lib/postgres-search.ts). Tracked as a Phase 1 follow-up.
-  const activeListings = listings.filter((listing) => listing.status === "active");
+  // ACTIVE domain. `listMarketplaceListings()` is DB-aware (live inventory in
+  // production, seed catalog locally) and already returns only active listings,
+  // so the sitemap reflects whatever is actually for sale.
+  let activeListings: Awaited<ReturnType<typeof listMarketplaceListings>> = [];
+  try {
+    const all = await listMarketplaceListings();
+    activeListings = all.filter((listing) => listing.status === "active");
+  } catch {
+    // A sitemap must never 500 the whole route; degrade to static entries only.
+    activeListings = [];
+  }
+
   const listingEntries: MetadataRoute.Sitemap = activeListings.flatMap((listing) => {
     const lastModified = listing.createdAt ? new Date(listing.createdAt) : now;
     return [
