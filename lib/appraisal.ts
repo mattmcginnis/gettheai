@@ -2,7 +2,8 @@ import {
   APPRAISAL_DISCLAIMER,
   APPRAISAL_MODEL_VERSION
 } from "@/lib/constants";
-import { comparableSales, listings } from "@/lib/seed";
+import { getComparableSource } from "@/lib/comparables";
+import { listings } from "@/lib/seed";
 import type { Appraisal, ComparableSale, Tld } from "@/lib/types";
 
 const VALID_DOMAIN = /^(?!-)(?:[a-z0-9-]{1,63}\.)+[a-z]{2,}$/i;
@@ -60,7 +61,7 @@ function getKeywordSignals(secondLevel: string) {
 function comparableScore(domain: string, tld: Tld): ComparableSale[] {
   const secondLevel = getSecondLevel(domain);
   const signals = getKeywordSignals(secondLevel);
-  const scored = comparableSales.map((sale) => {
+  const scored = getComparableSource().all().map((sale) => {
     const saleSecondLevel = getSecondLevel(sale.domain);
     const sharedSignal = signals.some((signal) => saleSecondLevel.includes(signal));
     const tldBoost = sale.tld === tld ? 2 : 0;
