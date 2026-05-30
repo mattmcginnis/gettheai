@@ -1,7 +1,98 @@
 import { COMMISSION_RATE } from "@/lib/constants";
 import { getListing } from "@/lib/search";
 import { listings } from "@/lib/seed";
-import type { Transaction, TransactionStatus, VerificationTier } from "@/lib/types";
+import type {
+  ListingStatus,
+  Offer,
+  Transaction,
+  TransactionStatus,
+  VerificationTier
+} from "@/lib/types";
+
+// ---------------------------------------------------------------------------
+// Status state machines
+//
+// These are the single source of truth for which status transitions are legal
+// for offers, transactions, and listings. They are enforced in app code at
+// every mutation site (see lib/repository.ts) because Postgres CHECK
+// constraints cannot reference a row's previous value without triggers. The
+// DB migration that accompanies this file enforces the *static* invariants the
+// state machine cannot (value ranges, expiry ordering, one live offer per
+// buyer per listing).
+//
+// A transition to the same status is always allowed (idempotent no-op) so that
+// callers updating sibling fields — e.g. a transaction's checklist without a
+// status change — are not rejected.
+// ---------------------------------------------------------------------------
+
+export type TransitionMap<S extends string> = Readonly<Record<S, readonly S[]>>;
+
+export const OFFER_STATUS_TRANSITIONS: TransitionMap<Offer["status"]> = {
+  pending: ["countered", "accepted", "rejected", "expired", "canceled"],
+  countered: ["countered", "accepted", "rejected", "expired", "canceled"],
+  accepted: [],
+  rejected: [],
+  expired: [],
+  canceled: []
+};
+
+export const TRANSACTION_STATUS_TRANSITIONS: TransitionMap<TransactionStatus> = {
+  initiated: ["escrow_started", "canceled", "disputed"],
+  escrow_started: ["buyer_funded", "canceled", "disputed"],
+  buyer_funded: ["domain_transfer_started", "canceled", "disputed"],
+  domain_transfer_started: ["transfer_verified", "canceled", "disputed"],
+  transfer_verified: ["payout_complete", "disputed"],
+  payout_complete: ["closed", "disputed"],
+  closed: ["disputed"],
+  canceled: [],
+  disputed: ["closed", "canceled", "escrow_started"]
+};
+
+export const LISTING_STATUS_TRANSITIONS: TransitionMap<ListingStatus> = {
+  draft: ["pending_verification", "active", "archived"],
+  pending_verification: ["active", "flagged", "archived", "draft"],
+  active: ["flagged", "sold", "archived", "pending_verification"],
+  flagged: ["active", "archived"],
+  sold: ["archived"],
+  archived: ["draft", "active"]
+};
+
+export function isValidTransition<S extends string>(
+  map: TransitionMap<S>,
+  from: S,
+  to: S
+): boolean {
+  if (from === to) {
+    return true;
+  }
+  return map[from]?.includes(to) ?? false;
+}
+
+export function assertTransition<S extends string>(
+  entity: string,
+  map: TransitionMap<S>,
+  from: S,
+  to: S
+): void {
+  if (!isValidTransition(map, from, to)) {
+    throw new Error(`Invalid ${entity} status transition: ${from} -> ${to}.`);
+  }
+}
+
+export function assertOfferTransition(from: Offer["status"], to: Offer["status"]): void {
+  assertTransition("offer", OFFER_STATUS_TRANSITIONS, from, to);
+}
+
+export function assertTransactionTransition(
+  from: TransactionStatus,
+  to: TransactionStatus
+): void {
+  assertTransition("transaction", TRANSACTION_STATUS_TRANSITIONS, from, to);
+}
+
+export function assertListingTransition(from: ListingStatus, to: ListingStatus): void {
+  assertTransition("listing", LISTING_STATUS_TRANSITIONS, from, to);
+}
 
 export function requiredVerificationForAmount(amount: number): VerificationTier {
   if (amount >= 15000) {

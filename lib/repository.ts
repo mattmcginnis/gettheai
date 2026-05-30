@@ -18,7 +18,13 @@ import { searchPostgresListingIds, searchPostgresListings } from "@/lib/postgres
 import { adminQueue, listings as seedListings } from "@/lib/seed";
 import { canQuerySearchIndex, searchIndexedListingIds } from "@/lib/search-index";
 import { filterAndSortListings, getListing as getSeedListing } from "@/lib/search";
-import { calculateCommission, canPlaceOffer } from "@/lib/transactions";
+import {
+  assertListingTransition,
+  assertOfferTransition,
+  assertTransactionTransition,
+  calculateCommission,
+  canPlaceOffer
+} from "@/lib/transactions";
 import type {
   AdminQueueItem,
   Appraisal,
@@ -640,6 +646,10 @@ export async function updateSellerListingStatus(input: {
     throw new Error("Only the seller of record can update this listing.");
   }
 
+  assertListingTransition(
+    row.status.toLowerCase() as Parameters<typeof assertListingTransition>[0],
+    input.status
+  );
   const updated = await getPrisma().domainListing.update({
     where: { id: row.id },
     data: {
@@ -987,6 +997,10 @@ export async function decideOffer(input: {
 
   const history = Array.isArray(existing.negotiationHistory) ? existing.negotiationHistory : [];
   const nextStatus = input.action === "accept" ? "ACCEPTED" : input.action === "reject" ? "REJECTED" : "COUNTERED";
+  assertOfferTransition(
+    existing.status.toLowerCase() as Parameters<typeof assertOfferTransition>[0],
+    nextStatus.toLowerCase() as Parameters<typeof assertOfferTransition>[0]
+  );
   const updated = await prisma.offer.update({
     where: { id: input.offerId },
     data: {
@@ -2994,6 +3008,10 @@ export async function adminUpdateListingStatus(input: {
     throw new Error("Listing not found.");
   }
 
+  assertListingTransition(
+    listing.status.toLowerCase() as Parameters<typeof assertListingTransition>[0],
+    input.status
+  );
   const updated = await prisma.domainListing.update({
     where: { id: listing.id },
     data: {
@@ -3309,6 +3327,12 @@ export async function updateTransactionOperations(input: {
     const update = input.checklistUpdates?.find((candidate) => candidate.index === index);
     return update ? mergeChecklistItem(item as Transaction["transferChecklist"][number], update) : item;
   });
+  if (input.status) {
+    assertTransactionTransition(
+      existing.status.toLowerCase() as Parameters<typeof assertTransactionTransition>[0],
+      input.status
+    );
+  }
   const nextStatus = input.status ? mapTransactionStatusToPrisma(input.status) : existing.status;
   const shouldAppendTimeline = Boolean(input.status || input.note);
   const statusTimeline = shouldAppendTimeline

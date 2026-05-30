@@ -266,3 +266,15 @@ model SupportCase {
   @@index([transactionId])
   @@index([updatedAt])
 }
+
+// Fixed-window rate-limit counter for the durable (RATE_LIMIT_BACKEND=postgres)
+// limiter in lib/rate-limit.ts. Each (key, windowStart) pair is one window;
+// expired rows can be swept on a schedule and never block new windows.
+model RateLimitCounter {
+  key         String
+  windowStart DateTime
+  count       Int      @default(0)
+
+  @@id([key, windowStart])
+  @@index([windowStart])
+}
