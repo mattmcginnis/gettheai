@@ -2415,7 +2415,8 @@ export async function recordAnalyticsEvent(input: {
     | "analytics.appraisal.completed"
     | "analytics.search.performed"
     | "analytics.listing.viewed"
-    | "analytics.parking.viewed";
+    | "analytics.parking.viewed"
+    | "analytics.ai.buyers_suggested";
   entityType: string;
   entityId: string;
   metadata?: Record<string, unknown>;
