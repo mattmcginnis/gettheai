@@ -3041,6 +3041,69 @@ export async function adminUpdateListingStatus(input: {
   };
 }
 
+// First-class admin seeding flow for the report's "seed 50-100 domains" mandate:
+// bulk-create + auto-appraise (via processPortfolioImport) -> ownership-attest ->
+// activate, in one call. House inventory is owned by the operator, so ownership is
+// admin-attested (recorded in the activation audit note) rather than DNS-challenged;
+// the attestation method is captured so a real verifyOwnershipChallenge can be
+// swapped in for third-party consignment later.
+export async function seedInventoryBatch(
+  csv: string,
+  options: {
+    sellerEmail?: string;
+    actorEmail?: string;
+    autoActivate?: boolean;
+    ownershipMethod?: "dns_txt" | "nameserver" | "registrar" | "manual";
+  } = {}
+) {
+  const ownershipMethod = options.ownershipMethod ?? "manual";
+  const importResult = await processPortfolioImport(csv, {
+    sellerEmail: options.sellerEmail,
+    actorEmail: options.actorEmail
+  });
+
+  const autoActivate = options.autoActivate ?? true;
+  const activated: Array<{ listingId: string; domain: string }> = [];
+  const activationFailures: Array<{ listingId?: string; domain: string; reason: string }> = [];
+
+  if (autoActivate) {
+    for (const item of importResult.accepted) {
+      if (!item.listingId) {
+        activationFailures.push({ domain: item.domain, reason: "missing_listing_id" });
+        continue;
+      }
+      try {
+        await adminUpdateListingStatus({
+          listingId: item.listingId,
+          status: "active",
+          actorEmail: options.actorEmail ?? options.sellerEmail,
+          note: `Seeded house inventory; ownership ${ownershipMethod}-attested by admin.`
+        });
+        activated.push({ listingId: item.listingId, domain: item.domain });
+      } catch (error) {
+        activationFailures.push({
+          listingId: item.listingId,
+          domain: item.domain,
+          reason: error instanceof Error ? error.message : "activation_failed"
+        });
+      }
+    }
+  }
+
+  return {
+    summary: {
+      ...importResult.summary,
+      activated: activated.length,
+      activationFailures: activationFailures.length,
+      ownershipMethod
+    },
+    accepted: importResult.accepted,
+    activated,
+    review: importResult.review,
+    activationFailures
+  };
+}
+
 export async function adminVerifySeller(input: {
   sellerEmail: string;
   verificationTier: VerificationTier;
