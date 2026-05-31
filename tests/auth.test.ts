@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { createMockSession, hasRole, validatePassword, validateTwoFactorCode } from "@/lib/auth";
 
 describe("auth scaffolding", () => {
@@ -40,5 +40,20 @@ describe("auth scaffolding", () => {
     } else {
       delete process.env.ALLOW_LOCAL_AUTH_FALLBACK;
     }
+  });
+
+  it("never honors local role headers in production, even with the flag set", async () => {
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("ALLOW_LOCAL_AUTH_FALLBACK", "true");
+
+    const request = new Request("https://getthe.com/buyer", {
+      headers: {
+        "x-getthe-role": "buyer"
+      }
+    });
+
+    await expect(hasRole(request, ["buyer"])).resolves.toBe(false);
+
+    vi.unstubAllEnvs();
   });
 });

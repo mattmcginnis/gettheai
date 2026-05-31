@@ -52,6 +52,11 @@ function protectWriteRequest(request: NextRequest) {
 
   const forwardedFor = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim();
   const rateKey = `${forwardedFor ?? "local"}:${request.nextUrl.pathname}`;
+  // Middleware runs on the Edge runtime, which cannot import Prisma, so this is
+  // a synchronous per-instance gate. Cross-instance durable limiting at the edge
+  // requires an Edge-compatible HTTP store (e.g. Upstash Redis REST) wired into
+  // lib/rate-limit.ts; Node-runtime route handlers can use enforceRateLimit()
+  // (RATE_LIMIT_BACKEND=postgres) for shared counting today.
   const rateLimit = checkRateLimit({
     key: rateKey,
     limit: Number(process.env.RATE_LIMIT_WRITES_PER_MINUTE ?? 120)

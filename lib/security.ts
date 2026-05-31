@@ -1,6 +1,15 @@
 const rateLimitBuckets = new Map<string, { count: number; resetAt: number }>();
 const replayCache = new Map<string, number>();
 
+export interface RateLimitResult {
+  allowed: boolean;
+  remaining: number;
+  resetAt: number;
+}
+
+// Synchronous, in-memory limiter. Correct for local development and as a cheap
+// per-instance first gate. For cross-instance durable limiting in production,
+// see lib/rate-limit.ts (RATE_LIMIT_BACKEND).
 export function checkRateLimit({
   key,
   limit = 120,
@@ -9,7 +18,7 @@ export function checkRateLimit({
   key: string;
   limit?: number;
   windowMs?: number;
-}) {
+}): RateLimitResult {
   const now = Date.now();
   const existing = rateLimitBuckets.get(key);
 

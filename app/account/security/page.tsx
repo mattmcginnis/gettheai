@@ -10,6 +10,13 @@ export const metadata: Metadata = {
 export default async function AccountSecurityPage() {
   await requirePageRole(["buyer", "seller", "admin"], "/account/security");
 
+  const clerkConfigured = Boolean(
+    process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY && process.env.CLERK_SECRET_KEY
+  );
+  const passwordDetail = clerkConfigured
+    ? "Self-serve reset via Clerk recovery."
+    : "Reset available in local development.";
+
   return (
     <main>
       <section className="border-b border-line bg-white py-10">
@@ -24,7 +31,7 @@ export default async function AccountSecurityPage() {
       <section className="py-8">
         <div className="shell grid gap-4 md:grid-cols-4">
           <MetricCard label="Email" value="Verified" detail="Required before offers." icon={<MailCheck size={20} />} />
-          <MetricCard label="Password" value="Reset" detail="Recovery flow placeholder." icon={<RotateCcw size={20} />} />
+          <MetricCard label="Password" value="Reset" detail={passwordDetail} icon={<RotateCcw size={20} />} />
           <MetricCard label="2FA" value="Required" detail="Sellers and transaction users." icon={<Smartphone size={20} />} />
           <MetricCard label="Keys" value="Audit" detail="Session and device history." icon={<KeyRound size={20} />} />
         </div>

@@ -42,6 +42,7 @@ export const betaChecklist = [
 export function getLaunchGates(): LaunchGate[] {
   const clerkConfigured = Boolean(process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY && process.env.CLERK_SECRET_KEY);
   const localAuthEnabled = process.env.ALLOW_LOCAL_AUTH_FALLBACK === "true";
+  const localFallbackUnsafe = localAuthEnabled && process.env.NODE_ENV === "production";
   const searchProvider = process.env.SEARCH_INDEX_PROVIDER ?? "postgres";
   const escrowMode = process.env.ESCROW_MODE ?? "handoff";
   const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? process.env.VERCEL_PROJECT_PRODUCTION_URL;
@@ -53,8 +54,12 @@ export function getLaunchGates(): LaunchGate[] {
     gate(
       "auth",
       "Production auth",
-      clerkConfigured ? "pass" : "warn",
-      clerkConfigured ? "Clerk keys are configured." : "Local auth fallback is available for development only.",
+      localFallbackUnsafe ? "fail" : clerkConfigured ? "pass" : "warn",
+      localFallbackUnsafe
+        ? "ALLOW_LOCAL_AUTH_FALLBACK is enabled in production. The header/cookie role override is ignored at runtime, but the flag must be removed before launch."
+        : clerkConfigured
+          ? "Clerk keys are configured."
+          : "Local auth fallback is available for development only.",
       "security",
       "Create the production Clerk app and configure publishable and secret keys.",
       ["NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY", "CLERK_SECRET_KEY"]

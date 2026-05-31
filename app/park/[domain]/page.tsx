@@ -49,8 +49,38 @@ export default async function ParkedDomainPage({
     }
   });
 
+  const productJsonLd = {
+    "@context": "https://schema.org",
+    "@type": "Product",
+    name: listing.domain,
+    category: listing.category,
+    description: listing.seoDescription,
+    brand: {
+      "@type": "Brand",
+      name: "GetThe"
+    },
+    offers: {
+      "@type": "Offer",
+      price: listing.price,
+      priceCurrency: "USD",
+      availability:
+        listing.status === "active"
+          ? "https://schema.org/InStock"
+          : "https://schema.org/OutOfStock",
+      url: `https://getthe.com/domains/${listing.domain}`
+    }
+  };
+
   return (
     <main>
+      {/* JSON-LD built only from our own listing fields; `<` escaped to
+          neutralize any `</script>` breakout in the serialized payload. */}
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{
+          __html: JSON.stringify(productJsonLd).replace(/</g, "\\u003c")
+        }}
+      />
       <section className="border-b border-line bg-white py-12">
         <div className="shell grid gap-8 lg:grid-cols-[1fr_420px]">
           <div>

@@ -158,6 +158,14 @@ function canUseClerk() {
 }
 
 function canUseLocalAuthFallback() {
+  // Header/cookie-based role override must never be honored in production, even
+  // if Clerk is unconfigured or ALLOW_LOCAL_AUTH_FALLBACK is set. In production
+  // the safe failure mode is to deny (return null from getRequestAuthContext);
+  // beta-checklist hard-fails the launch gate if the flag is set in production.
+  if (process.env.NODE_ENV === "production") {
+    return false;
+  }
+
   return !canUseClerk() || process.env.ALLOW_LOCAL_AUTH_FALLBACK === "true";
 }
 

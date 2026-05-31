@@ -18,7 +18,13 @@ import { searchPostgresListingIds, searchPostgresListings } from "@/lib/postgres
 import { adminQueue, listings as seedListings } from "@/lib/seed";
 import { canQuerySearchIndex, searchIndexedListingIds } from "@/lib/search-index";
 import { filterAndSortListings, getListing as getSeedListing } from "@/lib/search";
-import { calculateCommission, canPlaceOffer } from "@/lib/transactions";
+import {
+  assertListingTransition,
+  assertOfferTransition,
+  assertTransactionTransition,
+  calculateCommission,
+  canPlaceOffer
+} from "@/lib/transactions";
 import type {
   AdminQueueItem,
   Appraisal,
@@ -640,6 +646,10 @@ export async function updateSellerListingStatus(input: {
     throw new Error("Only the seller of record can update this listing.");
   }
 
+  assertListingTransition(
+    row.status.toLowerCase() as Parameters<typeof assertListingTransition>[0],
+    input.status
+  );
   const updated = await getPrisma().domainListing.update({
     where: { id: row.id },
     data: {
@@ -987,6 +997,10 @@ export async function decideOffer(input: {
 
   const history = Array.isArray(existing.negotiationHistory) ? existing.negotiationHistory : [];
   const nextStatus = input.action === "accept" ? "ACCEPTED" : input.action === "reject" ? "REJECTED" : "COUNTERED";
+  assertOfferTransition(
+    existing.status.toLowerCase() as Parameters<typeof assertOfferTransition>[0],
+    nextStatus.toLowerCase() as Parameters<typeof assertOfferTransition>[0]
+  );
   const updated = await prisma.offer.update({
     where: { id: input.offerId },
     data: {
@@ -2401,7 +2415,8 @@ export async function recordAnalyticsEvent(input: {
     | "analytics.appraisal.completed"
     | "analytics.search.performed"
     | "analytics.listing.viewed"
-    | "analytics.parking.viewed";
+    | "analytics.parking.viewed"
+    | "analytics.ai.buyers_suggested";
   entityType: string;
   entityId: string;
   metadata?: Record<string, unknown>;
@@ -2994,6 +3009,10 @@ export async function adminUpdateListingStatus(input: {
     throw new Error("Listing not found.");
   }
 
+  assertListingTransition(
+    listing.status.toLowerCase() as Parameters<typeof assertListingTransition>[0],
+    input.status
+  );
   const updated = await prisma.domainListing.update({
     where: { id: listing.id },
     data: {
@@ -3019,6 +3038,69 @@ export async function adminUpdateListingStatus(input: {
     action: "listing_status",
     listing: mapListing(updated),
     mode: "database"
+  };
+}
+
+// First-class admin seeding flow for the report's "seed 50-100 domains" mandate:
+// bulk-create + auto-appraise (via processPortfolioImport) -> ownership-attest ->
+// activate, in one call. House inventory is owned by the operator, so ownership is
+// admin-attested (recorded in the activation audit note) rather than DNS-challenged;
+// the attestation method is captured so a real verifyOwnershipChallenge can be
+// swapped in for third-party consignment later.
+export async function seedInventoryBatch(
+  csv: string,
+  options: {
+    sellerEmail?: string;
+    actorEmail?: string;
+    autoActivate?: boolean;
+    ownershipMethod?: "dns_txt" | "nameserver" | "registrar" | "manual";
+  } = {}
+) {
+  const ownershipMethod = options.ownershipMethod ?? "manual";
+  const importResult = await processPortfolioImport(csv, {
+    sellerEmail: options.sellerEmail,
+    actorEmail: options.actorEmail
+  });
+
+  const autoActivate = options.autoActivate ?? true;
+  const activated: Array<{ listingId: string; domain: string }> = [];
+  const activationFailures: Array<{ listingId?: string; domain: string; reason: string }> = [];
+
+  if (autoActivate) {
+    for (const item of importResult.accepted) {
+      if (!item.listingId) {
+        activationFailures.push({ domain: item.domain, reason: "missing_listing_id" });
+        continue;
+      }
+      try {
+        await adminUpdateListingStatus({
+          listingId: item.listingId,
+          status: "active",
+          actorEmail: options.actorEmail ?? options.sellerEmail,
+          note: `Seeded house inventory; ownership ${ownershipMethod}-attested by admin.`
+        });
+        activated.push({ listingId: item.listingId, domain: item.domain });
+      } catch (error) {
+        activationFailures.push({
+          listingId: item.listingId,
+          domain: item.domain,
+          reason: error instanceof Error ? error.message : "activation_failed"
+        });
+      }
+    }
+  }
+
+  return {
+    summary: {
+      ...importResult.summary,
+      activated: activated.length,
+      activationFailures: activationFailures.length,
+      ownershipMethod
+    },
+    accepted: importResult.accepted,
+    activated,
+    review: importResult.review,
+    activationFailures
   };
 }
 
@@ -3309,6 +3391,12 @@ export async function updateTransactionOperations(input: {
     const update = input.checklistUpdates?.find((candidate) => candidate.index === index);
     return update ? mergeChecklistItem(item as Transaction["transferChecklist"][number], update) : item;
   });
+  if (input.status) {
+    assertTransactionTransition(
+      existing.status.toLowerCase() as Parameters<typeof assertTransactionTransition>[0],
+      input.status
+    );
+  }
   const nextStatus = input.status ? mapTransactionStatusToPrisma(input.status) : existing.status;
   const shouldAppendTimeline = Boolean(input.status || input.note);
   const statusTimeline = shouldAppendTimeline
