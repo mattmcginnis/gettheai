@@ -3,7 +3,6 @@ import {
   ListingStatus as PrismaListingStatus,
   OfferStatus as PrismaOfferStatus,
   Prisma,
-  SupportStatus as PrismaSupportStatus,
   TransactionStatus as PrismaTransactionStatus
 } from "@prisma/client";
 import { appraiseDomain, getTld, isValidDomain, normalizeDomain } from "@/lib/appraisal";
@@ -27,7 +26,6 @@ import {
 } from "@/lib/transactions";
 import type {
   AdminQueueItem,
-  Appraisal,
   DomainFacets,
   DomainFilters,
   DomainListing,
@@ -40,7 +38,6 @@ import type {
   ParkedInquiry,
   SearchAlertItem,
   SellerInventoryItem,
-  SellerProfile,
   SellerProfilePage,
   SupportCaseItem,
   Transaction,
@@ -50,118 +47,77 @@ import type {
   WatchlistItem
 } from "@/lib/types";
 import { runGuardedAiDraft } from "@/lib/ai";
-
-const domainListingInclude = {
-  seller: {
-    include: {
-      sellerProfile: true
-    }
-  },
-  appraisal: true
-} satisfies Prisma.DomainListingInclude;
-
-const offerIncludeConfig = {
-  buyer: true,
-  listing: {
-    include: domainListingInclude
-  }
-} satisfies Prisma.OfferInclude;
-
-const transactionIncludeConfig = {
-  buyer: true,
-  listing: {
-    include: domainListingInclude
-  },
-  offer: true
-} satisfies Prisma.TransactionInclude;
-
-type PrismaListing = Prisma.DomainListingGetPayload<{ include: typeof domainListingInclude }>;
-type PrismaOffer = Prisma.OfferGetPayload<{ include: typeof offerIncludeConfig }>;
-type PrismaTransaction = Prisma.TransactionGetPayload<{ include: typeof transactionIncludeConfig }>;
-type LocalDraftListing = DomainListing & {
-  sellerEmail?: string;
-  ownershipVerification?: {
-    method: "dns_txt" | "nameserver" | "registrar" | "manual";
-    record: string;
-    value: string;
-    verifiedAt?: string;
-    verifiedBy?: string;
-  };
-};
-type LocalTransactionRecord = {
-  transaction: Transaction;
-  listing: DomainListing;
-  sellerEmail: string;
-  createdAt: string;
-  updatedAt: string;
-};
-export interface AdminEntityDetail {
-  entity: string;
-  id: string;
-  title: string;
-  subtitle: string;
-  primaryHref?: string;
-  sections: Array<{
-    title: string;
-    rows: Array<{
-      label: string;
-      value: string;
-      preformatted?: boolean;
-    }>;
-  }>;
-}
-export interface AdminOperationFilters {
-  q?: string;
-  kind?: "all" | "users" | "listings" | "offers" | "transactions" | "audit";
-  status?: string;
-}
-
-const localDraftListings = ((globalThis as typeof globalThis & {
-  __gettheLocalDraftListings?: LocalDraftListing[];
-}).__gettheLocalDraftListings ??= []);
-
-const localListingStatusOverrides = ((globalThis as typeof globalThis & {
-  __gettheLocalListingStatusOverrides?: Map<string, DomainListing["status"]>;
-}).__gettheLocalListingStatusOverrides ??= new Map<string, DomainListing["status"]>());
-
-const localListingDetailOverrides = ((globalThis as typeof globalThis & {
-  __gettheLocalListingDetailOverrides?: Map<string, Partial<DomainListing>>;
-}).__gettheLocalListingDetailOverrides ??= new Map<string, Partial<DomainListing>>());
-
-const localOffers = ((globalThis as typeof globalThis & {
-  __gettheLocalOffers?: OfferInboxItem[];
-}).__gettheLocalOffers ??= []);
-
-const localTransactions = ((globalThis as typeof globalThis & {
-  __gettheLocalTransactions?: LocalTransactionRecord[];
-}).__gettheLocalTransactions ??= []);
-
-const localParkedInquiries = ((globalThis as typeof globalThis & {
-  __gettheLocalParkedInquiries?: ParkedInquiry[];
-}).__gettheLocalParkedInquiries ??= []);
-
-const localWatchlistItems = ((globalThis as typeof globalThis & {
-  __gettheLocalWatchlistItems?: WatchlistItem[];
-}).__gettheLocalWatchlistItems ??= []);
-
-const localSearchAlerts = ((globalThis as typeof globalThis & {
-  __gettheLocalSearchAlerts?: SearchAlertItem[];
-}).__gettheLocalSearchAlerts ??= []);
-
-const localNotificationPreferences = ((globalThis as typeof globalThis & {
-  __gettheLocalNotificationPreferences?: Map<string, NotificationPreferences>;
-}).__gettheLocalNotificationPreferences ??= new Map<string, NotificationPreferences>());
-
-const defaultSearchLimit = 12;
-const maxSearchLimit = 48;
-const defaultNotificationPreferences: NotificationPreferences = {
-  instantAlerts: true,
-  dailyDigest: false,
-  weeklyDigest: true,
-  offerUpdates: true,
-  transactionUpdates: true,
-  supportUpdates: true
-};
+import {
+  adminRows,
+  applyAdminOperationFilters,
+  formatAdminMoney,
+  normalizeAdminQueueItem,
+  severityRank
+} from "@/lib/repository/internal/admin";
+import type { AdminEntityDetail, AdminOperationFilters } from "@/lib/repository/internal/admin";
+import { listingInclude, offerInclude, transactionInclude } from "@/lib/repository/internal/includes";
+import type { PrismaListing } from "@/lib/repository/internal/includes";
+import {
+  applyLocalListingOverride,
+  getLocalListings,
+  getLocalListingsForSeller,
+  getSellerEmailForListing,
+  isLocalDefaultSellerEmail,
+  localDraftListings,
+  localListingDetailOverrides,
+  localListingStatusOverrides,
+  localNotificationPreferences,
+  localOffers,
+  localParkedInquiries,
+  localSearchAlerts,
+  localSellerEmail,
+  localSellerForEmail,
+  localTransactions,
+  localWatchlistItems
+} from "@/lib/repository/internal/local-store";
+import {
+  buildSellerProfilePage,
+  mapAppraisalToCreate,
+  mapEscrowStatus,
+  mapListing,
+  mapListingStatusToPrisma,
+  mapListingTypeToPrisma,
+  mapLocalTransactionDashboardItem,
+  mapOffer,
+  mapOfferInbox,
+  mapSupportCase,
+  mapSupportStatusToPrisma,
+  mapTransaction,
+  mapTransactionDashboardItem,
+  mapTransactionStatusToPrisma,
+  mapVerificationFromPrisma,
+  mapVerificationToPrisma
+} from "@/lib/repository/internal/mappers";
+import {
+  createAdminAudit,
+  ensureUser,
+  getPrismaListingByIdOrDomain,
+  getPrismaOfferById
+} from "@/lib/repository/internal/prisma";
+import type { LocalDraftListing } from "@/lib/repository/internal/types";
+import {
+  appendJsonArray,
+  centsToDollars,
+  cryptoSafeId,
+  defaultNotificationPreferences,
+  defaultSearchLimit,
+  dollarsToCents,
+  inquiryMatchesQuery,
+  isListingOwnershipVerified,
+  isOpenOfferStatus,
+  maxSearchLimit,
+  mergeChecklistItem,
+  mergeInquiryAuditEvents,
+  normalizeNotificationPreferences,
+  ownershipVerificationStatus,
+  rate,
+  shouldDeliverAlert
+} from "@/lib/repository/internal/utils";
 
 export async function listMarketplaceListings(filters: DomainFilters = {}) {
   if (!isDatabaseConfigured()) {
@@ -3480,124 +3436,6 @@ export async function createAiOutreachDraft(input: {
   return record;
 }
 
-function getLocalListings() {
-  return [...seedListings.map(applyLocalListingOverride), ...localDraftListings.map(applyLocalListingOverride)].filter(
-    (listing): listing is DomainListing => Boolean(listing)
-  );
-}
-
-function getLocalListingsForSeller(input: { email: string; role?: "seller" | "admin" | "buyer" }) {
-  const listings = getLocalListings();
-  if (input.role === "admin" || isLocalDefaultSellerEmail(input.email)) {
-    return listings;
-  }
-
-  const email = input.email.toLowerCase();
-  return listings.filter((listing) => localSellerEmail(listing).toLowerCase() === email);
-}
-
-function applyLocalListingOverride(listing: DomainListing | null | undefined) {
-  if (!listing) {
-    return null;
-  }
-
-  const details = localListingDetailOverrides.get(listing.id) ?? {};
-  const status = localListingStatusOverrides.get(listing.id);
-  return {
-    ...listing,
-    ...details,
-    status: status ?? details.status ?? listing.status
-  };
-}
-
-function localSellerEmail(listing: DomainListing) {
-  const draftEmail = (listing as LocalDraftListing).sellerEmail;
-  if (draftEmail) {
-    return draftEmail;
-  }
-
-  const sellerEmails: Record<string, string> = {
-    "seller-1": "northstar@getthe.com",
-    "seller-2": "civic@getthe.com",
-    "seller-3": "ai-holdings@getthe.com",
-    "seller-local": "seller@getthe.com"
-  };
-
-  return sellerEmails[listing.seller.id] ?? `${listing.seller.slug}@seller.getthe.com`;
-}
-
-async function getSellerEmailForListing(listing: DomainListing) {
-  if (!isDatabaseConfigured()) {
-    return localSellerEmail(listing);
-  }
-
-  const row = await getPrismaListingByIdOrDomain(listing.id);
-  return row?.seller.email ?? `${listing.seller.slug}@seller.getthe.com`;
-}
-
-function localSellerForEmail(email?: string): { email: string; profile: SellerProfile } {
-  const normalized = (email ?? "seller@getthe.com").toLowerCase();
-  if (isLocalDefaultSellerEmail(normalized)) {
-    return {
-      email: "seller@getthe.com",
-      profile: {
-        id: "seller-local",
-        publicName: "GetThe Seller",
-        slug: "getthe-seller",
-        verified: true,
-        transactionCount: 0,
-        avgResponseHours: 6
-      }
-    };
-  }
-
-  const localPart = normalized.split("@")[0] ?? "seller";
-  const slug = slugify(localPart || "seller");
-  const publicName = titleize(localPart);
-
-  return {
-    email: normalized,
-    profile: {
-      id: `seller-${slug}`,
-      publicName,
-      slug,
-      verified: true,
-      transactionCount: 0,
-      avgResponseHours: 6
-    }
-  };
-}
-
-function isLocalDefaultSellerEmail(email: string) {
-  return ["seller@getthe.com", "seller@getthe.local", "seller@example.com"].includes(email.toLowerCase());
-}
-
-function slugify(value: string) {
-  return value.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "seller";
-}
-
-function titleize(value: string) {
-  return value
-    .replace(/[._+-]+/g, " ")
-    .split(" ")
-    .filter(Boolean)
-    .map((part) => part[0]?.toUpperCase() + part.slice(1))
-    .join(" ") || "GetThe Seller";
-}
-
-function isOpenOfferStatus(status: Offer["status"]) {
-  return status === "pending" || status === "countered";
-}
-
-function isListingOwnershipVerified(status: DomainListing["status"], verification: unknown) {
-  return status === "active" || Boolean((verification as { verifiedAt?: string; status?: string })?.verifiedAt);
-}
-
-function ownershipVerificationStatus(verification: unknown) {
-  const status = (verification as { status?: unknown })?.status;
-  return typeof status === "string" ? status : "pending";
-}
-
 async function listSearchAlertsForDelivery(cadence: SearchAlertItem["cadence"]) {
   if (!isDatabaseConfigured()) {
     return localSearchAlerts.filter((alert) => alert.active && alert.cadence === cadence);
@@ -3626,553 +3464,5 @@ async function listSearchAlertsForDelivery(cadence: SearchAlertItem["cadence"]) 
   }));
 }
 
-function shouldDeliverAlert(preferences: NotificationPreferences, cadence: SearchAlertItem["cadence"]) {
-  if (cadence === "instant") return preferences.instantAlerts;
-  if (cadence === "daily") return preferences.dailyDigest;
-  return preferences.weeklyDigest;
-}
-
-function normalizeNotificationPreferences(value: unknown): NotificationPreferences {
-  const candidate = typeof value === "object" && value !== null ? (value as Partial<NotificationPreferences>) : {};
-  return {
-    instantAlerts: candidate.instantAlerts ?? defaultNotificationPreferences.instantAlerts,
-    dailyDigest: candidate.dailyDigest ?? defaultNotificationPreferences.dailyDigest,
-    weeklyDigest: candidate.weeklyDigest ?? defaultNotificationPreferences.weeklyDigest,
-    offerUpdates: candidate.offerUpdates ?? defaultNotificationPreferences.offerUpdates,
-    transactionUpdates: candidate.transactionUpdates ?? defaultNotificationPreferences.transactionUpdates,
-    supportUpdates: candidate.supportUpdates ?? defaultNotificationPreferences.supportUpdates
-  };
-}
-
-function normalizeAdminQueueItem(value: unknown, fallbackId: string, fallbackCreatedAt: Date): AdminQueueItem {
-  const candidate = typeof value === "object" && value !== null ? (value as Partial<AdminQueueItem>) : {};
-  return {
-    id: typeof candidate.id === "string" ? candidate.id : fallbackId,
-    type: isAdminQueueType(candidate.type) ? candidate.type : "fraud",
-    title: typeof candidate.title === "string" ? candidate.title : "Moderation flag",
-    severity: isSeverity(candidate.severity) ? candidate.severity : "medium",
-    status: candidate.status === "reviewing" || candidate.status === "resolved" ? candidate.status : "open",
-    createdAt: typeof candidate.createdAt === "string" ? candidate.createdAt : fallbackCreatedAt.toISOString()
-  };
-}
-
-function isAdminQueueType(value: unknown): value is AdminQueueItem["type"] {
-  return value === "trademark" || value === "fraud" || value === "ownership" || value === "escrow" || value === "ai_approval";
-}
-
-function isSeverity(value: unknown): value is AdminQueueItem["severity"] {
-  return value === "low" || value === "medium" || value === "high";
-}
-
-function severityRank(severity: AdminQueueItem["severity"]) {
-  return severity === "high" ? 3 : severity === "medium" ? 2 : 1;
-}
-
-function rate(numerator: number, denominator: number) {
-  return denominator ? Math.round((numerator / denominator) * 100) : 0;
-}
-
-function listingInclude() {
-  return domainListingInclude;
-}
-
-function offerInclude() {
-  return offerIncludeConfig;
-}
-
-function transactionInclude() {
-  return transactionIncludeConfig;
-}
-
-async function getPrismaListingByIdOrDomain(identifier: string) {
-  const prisma = getPrisma();
-  return prisma.domainListing.findFirst({
-    where: {
-      OR: [{ id: identifier }, { domain: normalizeDomain(identifier) }]
-    },
-    include: listingInclude()
-  });
-}
-
-async function getPrismaOfferById(offerId: string) {
-  return getPrisma().offer.findUnique({
-    where: { id: offerId },
-    include: offerInclude()
-  });
-}
-
-async function ensureUser(
-  email: string,
-  role: "BUYER" | "SELLER" | "ADMIN",
-  verificationTier: VerificationTier = role === "BUYER" ? "email" : "two_factor"
-) {
-  const prisma = getPrisma();
-  const user = await prisma.user.upsert({
-    where: { email: email.toLowerCase() },
-    update: {
-      role,
-      verificationTier: mapVerificationToPrisma(verificationTier),
-      twoFactorEnabled: verificationTier !== "email"
-    },
-    create: {
-      clerkUserId: `local:${email.toLowerCase()}`,
-      email: email.toLowerCase(),
-      displayName: email.split("@")[0],
-      role,
-      verificationTier: mapVerificationToPrisma(verificationTier),
-      twoFactorEnabled: verificationTier !== "email"
-    }
-  });
-
-  if (role === "SELLER") {
-    await prisma.sellerProfile.upsert({
-      where: { userId: user.id },
-      update: {},
-      create: {
-        userId: user.id,
-        publicName: user.displayName ?? "GetThe Seller",
-        slug: (user.displayName ?? "getthe-seller").toLowerCase().replace(/[^a-z0-9]+/g, "-")
-      }
-    });
-  }
-
-  return user;
-}
-
-function mapListing(row: NonNullable<PrismaListing>): DomainListing {
-  return {
-    id: row.id,
-    domain: row.domain,
-    tld: getTld(row.domain),
-    registrar: row.registrar ?? "Unknown",
-    seller: {
-      id: row.seller.id,
-      publicName: row.seller.sellerProfile?.publicName ?? row.seller.displayName ?? "Verified Seller",
-      slug: row.seller.sellerProfile?.slug ?? row.seller.id,
-      verified: row.seller.twoFactorEnabled,
-      transactionCount: 0,
-      avgResponseHours: 6
-    },
-    status: row.status.toLowerCase() as DomainListing["status"],
-    listingType: row.listingType.toLowerCase() as ListingType,
-    price: centsToDollars(row.priceCents),
-    minimumOffer: centsToDollars(row.minimumOfferCents ?? row.priceCents),
-    commissionRate: row.commissionBps / 10000,
-    ownershipVerified: row.status === "ACTIVE" || Boolean((row.ownershipVerification as { verifiedAt?: string })?.verifiedAt),
-    description: row.description,
-    category: row.category,
-    trafficMonthly: row.trafficMonthly,
-    domainAgeYears: row.domainAgeYears,
-    seoTitle: row.seoTitle,
-    seoDescription: row.seoDescription,
-    brandSignals: Array.isArray(row.brandSignals) ? (row.brandSignals as string[]) : [],
-    createdAt: row.createdAt.toISOString(),
-    appraisal: row.appraisal ? mapAppraisal(row.appraisal) : appraiseDomain(row.domain)
-  };
-}
-
-function mapAppraisal(row: {
-  domain: string;
-  lowEstimateCents: number;
-  highEstimateCents: number;
-  confidence: number;
-  comparableSales: unknown;
-  keywordSignals: unknown;
-  brandabilityNotes: string;
-  generatedSummary: string;
-  modelVersion: string;
-}): Appraisal {
-  return {
-    domain: row.domain,
-    lowEstimate: centsToDollars(row.lowEstimateCents),
-    highEstimate: centsToDollars(row.highEstimateCents),
-    confidence: row.confidence,
-    comparableSales: Array.isArray(row.comparableSales) ? (row.comparableSales as Appraisal["comparableSales"]) : [],
-    keywordSignals: Array.isArray(row.keywordSignals) ? (row.keywordSignals as string[]) : [],
-    brandabilityNotes: row.brandabilityNotes,
-    generatedSummary: row.generatedSummary,
-    modelVersion: row.modelVersion,
-    disclaimer: appraiseDomain(row.domain).disclaimer
-  };
-}
-
-function mapOffer(row: NonNullable<PrismaOffer>): Offer {
-  return {
-    id: row.id,
-    listingId: row.listingId,
-    buyerEmail: row.buyer.email,
-    amount: centsToDollars(row.amountCents),
-    status: row.status.toLowerCase() as Offer["status"],
-    buyerVerificationTier: mapVerificationFromPrisma(row.buyerVerificationTier),
-    expiresAt: row.expiresAt.toISOString(),
-    negotiationHistory: Array.isArray(row.negotiationHistory) ? (row.negotiationHistory as Offer["negotiationHistory"]) : []
-  };
-}
-
-function mapOfferInbox(row: NonNullable<PrismaOffer>): OfferInboxItem {
-  return {
-    id: row.id,
-    domain: row.listing.domain,
-    listingId: row.listingId,
-    buyerEmail: row.buyer.email,
-    sellerEmail: row.listing.seller.email,
-    sellerName: row.listing.seller.sellerProfile?.publicName ?? row.listing.seller.displayName ?? row.listing.seller.email,
-    amount: centsToDollars(row.amountCents),
-    status: row.status.toLowerCase() as Offer["status"],
-    buyerVerificationTier: mapVerificationFromPrisma(row.buyerVerificationTier),
-    expiresAt: row.expiresAt.toISOString(),
-    updatedAt: row.updatedAt.toISOString()
-  };
-}
-
-function mapTransaction(row: NonNullable<PrismaTransaction>): Transaction {
-  return {
-    id: row.id,
-    listingId: row.listingId,
-    offerId: row.offerId ?? undefined,
-    buyerEmail: row.buyer.email,
-    sellerId: row.sellerId,
-    escrowProvider: "escrow.com",
-    escrowId: row.escrowId ?? undefined,
-    escrowUrl: row.escrowUrl ?? undefined,
-    amount: centsToDollars(row.amountCents),
-    commission: centsToDollars(row.commissionCents),
-    status: row.status.toLowerCase() as TransactionStatus,
-    statusTimeline: Array.isArray(row.statusTimeline) ? (row.statusTimeline as Transaction["statusTimeline"]) : [],
-    transferChecklist: Array.isArray(row.transferChecklist) ? (row.transferChecklist as Transaction["transferChecklist"]) : []
-  };
-}
-
-function mapTransactionDashboardItem(row: NonNullable<PrismaTransaction>): TransactionDashboardItem {
-  const transaction = mapTransaction(row);
-  return {
-    id: transaction.id,
-    listingId: transaction.listingId,
-    domain: row.listing.domain,
-    buyerEmail: row.buyer.email,
-    sellerEmail: row.listing.seller.email,
-    sellerName: row.listing.seller.sellerProfile?.publicName ?? row.listing.seller.displayName ?? row.listing.seller.email,
-    amount: transaction.amount,
-    commission: transaction.commission,
-    status: transaction.status,
-    escrowId: transaction.escrowId,
-    escrowUrl: transaction.escrowUrl,
-    createdAt: row.createdAt.toISOString(),
-    updatedAt: row.updatedAt.toISOString()
-  };
-}
-
-function mapLocalTransactionDashboardItem(record: LocalTransactionRecord): TransactionDashboardItem {
-  return {
-    id: record.transaction.id,
-    listingId: record.transaction.listingId,
-    domain: record.listing.domain,
-    buyerEmail: record.transaction.buyerEmail,
-    sellerEmail: record.sellerEmail,
-    sellerName: record.listing.seller.publicName,
-    amount: record.transaction.amount,
-    commission: record.transaction.commission,
-    status: record.transaction.status,
-    escrowId: record.transaction.escrowId,
-    escrowUrl: record.transaction.escrowUrl,
-    createdAt: record.createdAt,
-    updatedAt: record.updatedAt
-  };
-}
-
-function mergeInquiryAuditEvents(events: Array<{ eventType: string; metadata: unknown; createdAt: string }>) {
-  const inquiries = new Map<string, ParkedInquiry>();
-
-  for (const event of events) {
-    const metadata = typeof event.metadata === "object" && event.metadata !== null
-      ? (event.metadata as Partial<ParkedInquiry> & { inquiryId?: string })
-      : {};
-
-    if (event.eventType === "parking.inquiry.created" && typeof metadata.id === "string") {
-      inquiries.set(metadata.id, normalizeInquiry(metadata, event.createdAt));
-      continue;
-    }
-
-    if (event.eventType === "parking.inquiry.followup.updated" && typeof metadata.inquiryId === "string") {
-      const existing = inquiries.get(metadata.inquiryId);
-      if (existing) {
-        inquiries.set(metadata.inquiryId, {
-          ...existing,
-          status: normalizeInquiryStatus(metadata.status) ?? existing.status,
-          followUpNote: typeof metadata.followUpNote === "string" ? metadata.followUpNote : existing.followUpNote,
-          updatedAt: typeof metadata.updatedAt === "string" ? metadata.updatedAt : event.createdAt
-        });
-      }
-    }
-  }
-
-  return Array.from(inquiries.values());
-}
-
-function normalizeInquiry(value: Partial<ParkedInquiry>, fallbackCreatedAt: string): ParkedInquiry {
-  return {
-    id: typeof value.id === "string" ? value.id : `inquiry_${fallbackCreatedAt}`,
-    listingId: typeof value.listingId === "string" ? value.listingId : "unknown",
-    domain: typeof value.domain === "string" ? value.domain : "unknown",
-    sellerEmail: typeof value.sellerEmail === "string" ? value.sellerEmail : "seller@getthe.com",
-    name: typeof value.name === "string" ? value.name : "Unknown buyer",
-    email: typeof value.email === "string" ? value.email : "buyer@getthe.local",
-    message: typeof value.message === "string" ? value.message : "",
-    budget: typeof value.budget === "number" ? value.budget : undefined,
-    status: normalizeInquiryStatus(value.status) ?? "new",
-    followUpNote: typeof value.followUpNote === "string" ? value.followUpNote : undefined,
-    updatedAt: typeof value.updatedAt === "string" ? value.updatedAt : fallbackCreatedAt,
-    createdAt: typeof value.createdAt === "string" ? value.createdAt : fallbackCreatedAt
-  };
-}
-
-function normalizeInquiryStatus(value: unknown): ParkedInquiry["status"] | null {
-  return value === "new" || value === "contacted" || value === "converted" || value === "closed" ? value : null;
-}
-
-function mergeChecklistItem(
-  item: Transaction["transferChecklist"][number],
-  update: {
-    done?: boolean;
-    owner?: NonNullable<Transaction["transferChecklist"][number]["owner"]>;
-    dueAt?: string;
-    note?: string;
-  }
-): Transaction["transferChecklist"][number] {
-  return {
-    ...item,
-    ...(typeof update.done === "boolean" ? { done: update.done } : {}),
-    ...(update.owner ? { owner: update.owner } : {}),
-    ...(update.dueAt ? { dueAt: update.dueAt } : {}),
-    ...(typeof update.note === "string" ? { note: update.note } : {}),
-    updatedAt: new Date().toISOString()
-  };
-}
-
-function inquiryMatchesQuery(inquiry: ParkedInquiry, query: string) {
-  return [inquiry.domain, inquiry.name, inquiry.email, inquiry.message, inquiry.sellerEmail]
-    .some((value) => value.toLowerCase().includes(query));
-}
-
-function buildSellerProfilePage(seller: SellerProfile, listings: DomainListing[]): SellerProfilePage {
-  const activeListings = listings.filter((listing) => listing.status === "active").length;
-  const pendingListings = listings.filter((listing) => listing.status === "pending_verification").length;
-  const totalAsk = listings.reduce((sum, listing) => sum + listing.price, 0);
-
-  return {
-    seller,
-    listings,
-    metrics: {
-      activeListings,
-      pendingListings,
-      totalAsk,
-      averageAsk: listings.length ? Math.round(totalAsk / listings.length) : 0,
-      tlds: Array.from(new Set(listings.map((listing) => listing.tld))).sort(),
-      categories: Array.from(new Set(listings.map((listing) => listing.category))).sort()
-    }
-  };
-}
-
-function mapAppraisalToCreate(appraisal: Appraisal) {
-  return {
-    domain: appraisal.domain,
-    lowEstimateCents: dollarsToCents(appraisal.lowEstimate),
-    highEstimateCents: dollarsToCents(appraisal.highEstimate),
-    confidence: appraisal.confidence,
-    comparableSales: appraisal.comparableSales as unknown as Prisma.InputJsonValue,
-    keywordSignals: appraisal.keywordSignals as Prisma.InputJsonValue,
-    brandabilityNotes: appraisal.brandabilityNotes,
-    generatedSummary: appraisal.generatedSummary,
-    modelVersion: appraisal.modelVersion,
-    disclaimerAccepted: false
-  };
-}
-
-function mapVerificationToPrisma(tier: VerificationTier) {
-  return tier.toUpperCase() as "EMAIL" | "TWO_FACTOR" | "ESCROW_INTENT" | "KYC_REVIEW";
-}
-
-function mapVerificationFromPrisma(tier: string): VerificationTier {
-  return tier.toLowerCase() as VerificationTier;
-}
-
-function mapListingStatusToPrisma(status: DomainListing["status"]) {
-  const map = {
-    draft: PrismaListingStatus.DRAFT,
-    pending_verification: PrismaListingStatus.PENDING_VERIFICATION,
-    active: PrismaListingStatus.ACTIVE,
-    flagged: PrismaListingStatus.FLAGGED,
-    sold: PrismaListingStatus.SOLD,
-    archived: PrismaListingStatus.ARCHIVED
-  };
-
-  return map[status];
-}
-
-function mapListingTypeToPrisma(listingType: ListingType) {
-  const map = {
-    buy_now: "BUY_NOW",
-    make_offer: "MAKE_OFFER",
-    buy_now_and_offer: "BUY_NOW_AND_OFFER"
-  } as const;
-
-  return map[listingType];
-}
-
-function mapSupportStatusToPrisma(status: SupportCaseItem["status"]) {
-  const map = {
-    open: PrismaSupportStatus.OPEN,
-    waiting_on_user: PrismaSupportStatus.WAITING_ON_USER,
-    escalated: PrismaSupportStatus.ESCALATED,
-    resolved: PrismaSupportStatus.RESOLVED
-  };
-
-  return map[status];
-}
-
-function mapTransactionStatusToPrisma(status: TransactionStatus) {
-  return status.toUpperCase() as PrismaTransactionStatus;
-}
-
-function appendJsonArray(value: unknown, entry: unknown) {
-  return [...(Array.isArray(value) ? value : []), entry];
-}
-
-function applyAdminOperationFilters<T extends {
-  users: Array<Record<string, unknown>>;
-  listings: Array<Record<string, unknown>>;
-  offers: Array<Record<string, unknown>>;
-  transactions: Array<Record<string, unknown>>;
-  auditEvents: Array<Record<string, unknown>>;
-}>(operations: T, filters: AdminOperationFilters): T {
-  const q = filters.q?.trim().toLowerCase();
-  const status = filters.status?.trim().toLowerCase();
-  const kind = filters.kind ?? "all";
-
-  const matchesText = (row: Record<string, unknown>) => {
-    if (!q) return true;
-    return Object.values(row).some((value) => String(value ?? "").toLowerCase().includes(q));
-  };
-  const matchesStatus = (row: Record<string, unknown>) => {
-    if (!status || status === "all") return true;
-    return String(row.status ?? row.role ?? row.eventType ?? "").toLowerCase().includes(status);
-  };
-  const filterRows = (rows: Array<Record<string, unknown>>, rowKind: AdminOperationFilters["kind"]) => {
-    if (kind !== "all" && kind !== rowKind) return [];
-    return rows.filter((row) => matchesText(row) && matchesStatus(row));
-  };
-
-  return {
-    ...operations,
-    users: filterRows(operations.users, "users"),
-    listings: filterRows(operations.listings, "listings"),
-    offers: filterRows(operations.offers, "offers"),
-    transactions: filterRows(operations.transactions, "transactions"),
-    auditEvents: filterRows(operations.auditEvents, "audit")
-  };
-}
-
-function adminRows(values: Record<string, unknown>) {
-  return Object.entries(values)
-    .filter(([, value]) => value !== undefined && value !== null && value !== "")
-    .map(([label, value]) => {
-      const formatted = formatAdminValue(value);
-      return {
-        label,
-        value: formatted.value,
-        preformatted: formatted.preformatted
-      };
-    });
-}
-
-function formatAdminValue(value: unknown) {
-  if (value instanceof Date) {
-    return { value: value.toISOString(), preformatted: false };
-  }
-
-  if (typeof value === "boolean") {
-    return { value: value ? "yes" : "no", preformatted: false };
-  }
-
-  if (typeof value === "object" && value !== null) {
-    return { value: JSON.stringify(value, null, 2), preformatted: true };
-  }
-
-  return { value: String(value), preformatted: false };
-}
-
-function formatAdminMoney(value: number) {
-  return `$${Math.round(value).toLocaleString("en-US")}`;
-}
-
-async function createAdminAudit(input: {
-  actorEmail?: string;
-  eventType: string;
-  entityType: string;
-  entityId: string;
-  metadata: Record<string, unknown>;
-}) {
-  if (!isDatabaseConfigured()) {
-    return;
-  }
-
-  const actor = input.actorEmail ? await ensureUser(input.actorEmail, "ADMIN") : null;
-  await getPrisma().auditEvent.create({
-    data: {
-      actorId: actor?.id,
-      eventType: input.eventType,
-      entityType: input.entityType,
-      entityId: input.entityId,
-      metadata: input.metadata as Prisma.InputJsonValue
-    }
-  });
-}
-
-function mapSupportCase(row: {
-  id: string;
-  requester: { email: string };
-  subject: string;
-  status: string;
-  transactionId: string | null;
-  aiDraftResponses: unknown;
-  escalationNotes: string | null;
-  createdAt: Date;
-}): SupportCaseItem {
-  return {
-    id: row.id,
-    requesterEmail: row.requester.email,
-    subject: row.subject,
-    status: row.status.toLowerCase() as SupportCaseItem["status"],
-    transactionId: row.transactionId ?? undefined,
-    aiDraftResponses: Array.isArray(row.aiDraftResponses)
-      ? (row.aiDraftResponses as SupportCaseItem["aiDraftResponses"])
-      : [],
-    escalationNotes: row.escalationNotes ?? undefined,
-    createdAt: row.createdAt.toISOString()
-  };
-}
-
-function mapEscrowStatus(status: string | undefined): TransactionStatus {
-  const normalized = status?.toLowerCase();
-  if (normalized?.includes("fund")) return "buyer_funded";
-  if (normalized?.includes("transfer")) return "domain_transfer_started";
-  if (normalized?.includes("verify")) return "transfer_verified";
-  if (normalized?.includes("release") || normalized?.includes("complete")) return "payout_complete";
-  if (normalized?.includes("cancel")) return "canceled";
-  if (normalized?.includes("dispute")) return "disputed";
-  return "escrow_started";
-}
-
-function dollarsToCents(value: number) {
-  return Math.round(value * 100);
-}
-
-function centsToDollars(value: number) {
-  return Math.round(value) / 100;
-}
-
-function cryptoSafeId() {
-  return globalThis.crypto?.randomUUID?.() ?? `id_${Date.now()}`;
-}
-
 export type { AdminQueueItem };
+export type { AdminEntityDetail, AdminOperationFilters } from "@/lib/repository/internal/admin";
