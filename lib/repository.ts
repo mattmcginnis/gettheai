@@ -11,6 +11,9 @@ export * from "@/lib/repository/support";
 export * from "@/lib/repository/analytics";
 export * from "@/lib/repository/admin";
 export * from "@/lib/repository/ai";
+export * from "@/lib/repository/listing-ownership";
+export * from "@/lib/repository/portfolio-import";
+export * from "@/lib/repository/admin-entity-detail";
 
 export type { AdminQueueItem } from "@/lib/types";
 export type { AdminEntityDetail, AdminOperationFilters } from "@/lib/repository/internal/admin";
