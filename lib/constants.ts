@@ -2,7 +2,7 @@ export const CANONICAL_DOMAIN = "getthe.com";
 export const AI_DOMAIN = "getthe.ai";
 export const ORG_DOMAIN = "getthe.org";
 export const COMMISSION_RATE = 0.07;
-export const APPRAISAL_MODEL_VERSION = "getthe-local-appraisal-v1";
+export const APPRAISAL_MODEL_VERSION = "getthe-local-appraisal-v2";
 
 export const APPRAISAL_DISCLAIMER =
   "GetThe AI estimates are informational only and are not guarantees of sale price, liquidity, buyer interest, or legal suitability.";
