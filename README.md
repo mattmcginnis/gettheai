@@ -31,8 +31,13 @@ Useful checks:
 npm run typecheck
 npm run lint
 npm test
-npm run build
+DATABASE_URL= npm run build
 ```
+
+`DATABASE_URL= npm run build` verifies seed-data mode, which is useful when
+Docker/Postgres is not running. If `.env.local` points `DATABASE_URL` at the
+Compose database on `localhost:55432`, start Docker Desktop and Postgres before
+running a DB-backed production build.
 
 ## Important Routes
 
@@ -101,13 +106,19 @@ Docker Compose can run the production-shaped local stack:
 npm run infra:up
 DATABASE_URL="postgresql://getthe:getthe@localhost:55432/getthe" npm run prisma:migrate
 DATABASE_URL="postgresql://getthe:getthe@localhost:55432/getthe" npm run prisma:seed
+DATABASE_URL="postgresql://getthe:getthe@localhost:55432/getthe" npm run build
 DATABASE_URL="postgresql://getthe:getthe@localhost:55432/getthe" npm run db:smoke
 DATABASE_URL="postgresql://getthe:getthe@localhost:55432/getthe" npm run db:cleanup
 STAGING_BASE_URL="http://localhost:3000" npm run staging:smoke
 SEARCH_INDEX_PROVIDER="postgres" npm run dev
 ```
 
-The default `infra:up` script starts Postgres only. Run `npm run infra:search` when you intentionally want to test a Meilisearch-backed index. The `app` service is also defined for containerized preview, but running migrations before starting the app is still recommended.
+The default `infra:up` script starts Postgres only. Run it after Docker Desktop
+is running; otherwise builds that load `.env.local` and try to prerender
+database-backed pages will fail because `localhost:55432` is unavailable. Run
+`npm run infra:search` when you intentionally want to test a Meilisearch-backed
+index. The `app` service is also defined for containerized preview, but running
+migrations before starting the app is still recommended.
 
 ## E2E And Preview Deploys
 

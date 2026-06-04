@@ -39,11 +39,11 @@ Per-domain landing pages are the cold-start demand flywheel: every listing is a
 long-tail page that can rank for `[domain] for sale` and `buy [domain]`.
 
 Implementation checklist (Phase 1, code):
-- [ ] `generateMetadata` (title / description / canonical) on `app/domains/[domain]` and `app/park/[domain]`.
-- [ ] JSON-LD `Product` + `Offer` structured data on each listing + parked page.
-- [ ] Dynamic `app/sitemap.ts` enumerating ACTIVE listings via the search layer.
-- [ ] `app/robots.ts` pointing at the sitemap, disallowing auth/admin/api paths.
-- [ ] Funnel instrumentation (appraisal→list, search→detail, detail→offer, offer→escrow→close) surfaced on `app/admin/analytics`.
+- [x] `generateMetadata` (title / description / canonical) on `app/domains/[domain]` and `app/park/[domain]`.
+- [x] JSON-LD `Product` + `Offer` structured data on each listing + parked page.
+- [x] Dynamic `app/sitemap.ts` enumerating ACTIVE listings via the search layer.
+- [x] `app/robots.ts` pointing at the sitemap, disallowing auth/admin/api paths.
+- [x] Funnel instrumentation (appraisal->list, search->detail, detail->offer, offer->escrow->close) surfaced on `app/admin/analytics`.
 
 Targets:
 - Each listing page: unique title `Buy {domain} — {category} domain | GetThe`,
