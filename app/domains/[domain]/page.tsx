@@ -2,10 +2,11 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { BadgeCheck, Clock, ExternalLink, ShieldCheck, Sparkles } from "lucide-react";
+import { AuctionPanel } from "@/components/auction-panel";
 import { OfferPanel } from "@/components/offer-panel";
 import { TransactionTimeline } from "@/components/transaction-timeline";
 import { formatMoney } from "@/lib/appraisal";
-import { getMarketplaceListing, recordAnalyticsEvent } from "@/lib/repository";
+import { getAuctionState, getMarketplaceListing, recordAnalyticsEvent } from "@/lib/repository";
 
 export async function generateMetadata({
   params
@@ -39,6 +40,9 @@ export default async function DomainDetailPage({
   if (!listing) {
     notFound();
   }
+
+  // Viewing an auction lazily settles it if its end time has passed.
+  const auction = listing.listingType === "auction" ? await getAuctionState(listing.id) : null;
 
   await recordAnalyticsEvent({
     eventType: "analytics.listing.viewed",
@@ -107,7 +111,7 @@ export default async function DomainDetailPage({
               <DetailStat icon={<ShieldCheck size={17} />} label="Escrow" value="Handoff" />
             </div>
           </div>
-          <OfferPanel listing={listing} />
+          {auction ? <AuctionPanel auction={auction} /> : <OfferPanel listing={listing} />}
         </div>
       </section>
 

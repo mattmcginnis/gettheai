@@ -9,7 +9,15 @@ const schema = z.object({
   minimumOffer: z.number().positive().optional(),
   registrar: z.string().optional(),
   category: z.string().default("General"),
-  sellerId: z.string().default("seller-local")
+  sellerId: z.string().default("seller-local"),
+  listingType: z.enum(["buy_now", "make_offer", "buy_now_and_offer", "auction"]).optional(),
+  auction: z
+    .object({
+      endsAt: z.string(),
+      reservePrice: z.number().positive().optional(),
+      bidIncrement: z.number().positive()
+    })
+    .optional()
 });
 
 export async function POST(request: NextRequest) {

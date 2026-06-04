@@ -10,7 +10,7 @@ export type ListingStatus =
   | "sold"
   | "archived";
 
-export type ListingType = "buy_now" | "make_offer" | "buy_now_and_offer";
+export type ListingType = "buy_now" | "make_offer" | "buy_now_and_offer" | "auction";
 
 export type OfferStatus =
   | "pending"
@@ -95,6 +95,36 @@ export interface DomainListing {
   brandSignals: string[];
   createdAt: string;
   appraisal: Appraisal;
+  // Auction-only, present when listingType === "auction". The reserve price is
+  // intentionally never exposed on the buyer-facing listing — only reserveMet
+  // (see AuctionState) is surfaced.
+  auctionEndsAt?: string;
+  bidIncrement?: number;
+  auctionSettledAt?: string;
+}
+
+export interface AuctionState {
+  listingId: string;
+  domain: string;
+  endsAt: string;
+  open: boolean;
+  startingBid: number;
+  bidIncrement: number;
+  minimumNextBid: number;
+  highestBid: number | null;
+  highestBidderEmail: string | null;
+  bidCount: number;
+  bidderCount: number;
+  reserveMet: boolean;
+  settled: boolean;
+  winnerEmail: string | null;
+}
+
+export interface AuctionBid {
+  buyerEmail: string;
+  amount: number;
+  status: OfferStatus;
+  updatedAt: string;
 }
 
 export interface DomainFilters {

@@ -33,6 +33,7 @@ enum ListingType {
   BUY_NOW
   MAKE_OFFER
   BUY_NOW_AND_OFFER
+  AUCTION
 }
 
 enum OfferStatus {
@@ -116,6 +117,10 @@ model DomainListing {
   priceCents            Int
   minimumOfferCents     Int?
   commissionBps         Int           @default(700)
+  auctionEndsAt         DateTime?
+  reservePriceCents     Int?
+  bidIncrementCents     Int?
+  auctionSettledAt      DateTime?
   ownershipVerification Json          @default("{}")
   description           String
   category              String
@@ -138,6 +143,7 @@ model DomainListing {
   @@index([priceCents])
   @@index([listingType])
   @@index([status, updatedAt])
+  @@index([listingType, status, auctionEndsAt])
 }
 
 model Appraisal {

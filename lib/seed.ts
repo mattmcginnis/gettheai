@@ -255,6 +255,44 @@ export const listings: DomainListing[] = [
       modelVersion: APPRAISAL_MODEL_VERSION,
       disclaimer: APPRAISAL_DISCLAIMER
     }
+  },
+  {
+    id: "dom-7",
+    domain: "auctionforge.com",
+    tld: "com",
+    registrar: "Namecheap",
+    seller: sellers[0],
+    status: "active",
+    listingType: "auction",
+    price: 12000,
+    minimumOffer: 4000,
+    commissionRate: 0.07,
+    ownershipVerified: true,
+    description:
+      "A time-boxed auction for a strong two-word .com — bidding closes at the listed end time, highest bid over reserve wins.",
+    category: "SaaS",
+    trafficMonthly: 420,
+    domainAgeYears: 7,
+    seoTitle: "AuctionForge.com is up for auction",
+    seoDescription: "Bid on AuctionForge.com in a GetThe timed auction with Escrow.com transaction handoff.",
+    brandSignals: ["two-word .com", "auction", "memorable"],
+    createdAt: "2026-03-20T12:00:00.000Z",
+    auctionEndsAt: "2027-12-31T23:59:00.000Z",
+    bidIncrement: 250,
+    appraisal: {
+      domain: "auctionforge.com",
+      lowEstimate: 7800,
+      highEstimate: 16500,
+      confidence: 80,
+      comparableSales: comparableSales.filter((sale) => sale.tld === "com").slice(0, 3),
+      keywordSignals: ["auction", "forge", "marketplace", "build"],
+      brandabilityNotes:
+        "Strong two-word .com with clear commercial intent; well suited to a competitive timed auction.",
+      generatedSummary:
+        "AuctionForge.com is a brandable two-word .com offered via timed auction to surface true market demand.",
+      modelVersion: APPRAISAL_MODEL_VERSION,
+      disclaimer: APPRAISAL_DISCLAIMER
+    }
   }
 ];
 

@@ -11,6 +11,7 @@ export * from "@/lib/repository/support";
 export * from "@/lib/repository/analytics";
 export * from "@/lib/repository/admin";
 export * from "@/lib/repository/ai";
+export * from "@/lib/repository/auctions";
 export * from "@/lib/repository/listing-ownership";
 export * from "@/lib/repository/portfolio-import";
 export * from "@/lib/repository/admin-entity-detail";

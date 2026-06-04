@@ -128,6 +128,42 @@ export function calculateCommission(amount: number) {
   return Math.round(amount * COMMISSION_RATE);
 }
 
+// ---------------------------------------------------------------------------
+// Auction helpers (pure). Bids are modelled as Offers; these functions express
+// the auction-specific rules that bidding and settlement enforce. All amounts
+// are in dollars, matching the rest of the app-facing layer (canPlaceOffer,
+// DomainListing.price/minimumOffer).
+// ---------------------------------------------------------------------------
+
+export function isAuctionOpen(auctionEndsAt: string | null | undefined, now: Date = new Date()): boolean {
+  if (!auctionEndsAt) {
+    return false;
+  }
+  const ends = new Date(auctionEndsAt).getTime();
+  return Number.isFinite(ends) && ends > now.getTime();
+}
+
+export function minimumNextBid(
+  currentHighest: number | null,
+  startingBid: number,
+  increment: number
+): number {
+  if (currentHighest == null) {
+    return startingBid;
+  }
+  return currentHighest + increment;
+}
+
+export function reserveMet(highestBid: number | null, reserve: number | null): boolean {
+  if (highestBid == null) {
+    return false;
+  }
+  if (reserve == null) {
+    return true;
+  }
+  return highestBid >= reserve;
+}
+
 export function createEscrowTransaction({
   listingId,
   buyerEmail,

@@ -6,10 +6,36 @@ import {
   calculateCommission,
   canPlaceOffer,
   createEscrowTransaction,
+  isAuctionOpen,
   isValidTransition,
   LISTING_STATUS_TRANSITIONS,
-  OFFER_STATUS_TRANSITIONS
+  minimumNextBid,
+  OFFER_STATUS_TRANSITIONS,
+  reserveMet
 } from "@/lib/transactions";
+
+describe("auction helpers", () => {
+  it("isAuctionOpen reflects the end time", () => {
+    const future = new Date(Date.now() + 60_000).toISOString();
+    const past = new Date(Date.now() - 60_000).toISOString();
+    expect(isAuctionOpen(future)).toBe(true);
+    expect(isAuctionOpen(past)).toBe(false);
+    expect(isAuctionOpen(null)).toBe(false);
+    expect(isAuctionOpen(undefined)).toBe(false);
+  });
+
+  it("minimumNextBid uses starting bid first, then increment above the high bid", () => {
+    expect(minimumNextBid(null, 500, 100)).toBe(500);
+    expect(minimumNextBid(600, 500, 100)).toBe(700);
+  });
+
+  it("reserveMet treats a null reserve as always met once any bid exists", () => {
+    expect(reserveMet(null, 1000)).toBe(false);
+    expect(reserveMet(900, 1000)).toBe(false);
+    expect(reserveMet(1000, 1000)).toBe(true);
+    expect(reserveMet(800, null)).toBe(true);
+  });
+});
 
 describe("transactions", () => {
   it("calculates 7 percent commission", () => {

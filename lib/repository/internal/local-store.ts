@@ -49,6 +49,12 @@ export const localNotificationPreferences = ((globalThis as typeof globalThis & 
   __gettheLocalNotificationPreferences?: Map<string, NotificationPreferences>;
 }).__gettheLocalNotificationPreferences ??= new Map<string, NotificationPreferences>());
 
+// Auction-only state that is not part of the public DomainListing shape:
+// the (hidden) reserve and the settlement marker, keyed by listing id.
+export const localAuctionState = ((globalThis as typeof globalThis & {
+  __gettheLocalAuctionState?: Map<string, { reserveCents: number | null; settledAt: string | null }>;
+}).__gettheLocalAuctionState ??= new Map<string, { reserveCents: number | null; settledAt: string | null }>());
+
 export function getLocalListings() {
   return [...seedListings.map(applyLocalListingOverride), ...localDraftListings.map(applyLocalListingOverride)].filter(
     (listing): listing is DomainListing => Boolean(listing)

@@ -51,7 +51,10 @@ export function mapListing(row: NonNullable<PrismaListing>): DomainListing {
     seoDescription: row.seoDescription,
     brandSignals: Array.isArray(row.brandSignals) ? (row.brandSignals as string[]) : [],
     createdAt: row.createdAt.toISOString(),
-    appraisal: row.appraisal ? mapAppraisal(row.appraisal) : appraiseDomain(row.domain)
+    appraisal: row.appraisal ? mapAppraisal(row.appraisal) : appraiseDomain(row.domain),
+    auctionEndsAt: row.auctionEndsAt ? row.auctionEndsAt.toISOString() : undefined,
+    bidIncrement: row.bidIncrementCents != null ? centsToDollars(row.bidIncrementCents) : undefined,
+    auctionSettledAt: row.auctionSettledAt ? row.auctionSettledAt.toISOString() : undefined
   };
 }
 
@@ -223,7 +226,8 @@ export function mapListingTypeToPrisma(listingType: ListingType) {
   const map = {
     buy_now: "BUY_NOW",
     make_offer: "MAKE_OFFER",
-    buy_now_and_offer: "BUY_NOW_AND_OFFER"
+    buy_now_and_offer: "BUY_NOW_AND_OFFER",
+    auction: "AUCTION"
   } as const;
 
   return map[listingType];

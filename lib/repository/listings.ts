@@ -5,7 +5,7 @@ import { getPrisma, isDatabaseConfigured } from "@/lib/prisma";
 import { assertListingTransition } from "@/lib/transactions";
 import type { DomainListing, ListingType, Offer, SellerInventoryItem } from "@/lib/types";
 import { type PrismaListing, listingInclude } from "@/lib/repository/internal/includes";
-import { getLocalListingsForSeller, localDraftListings, localListingDetailOverrides, localListingStatusOverrides, localOffers, localSellerForEmail } from "@/lib/repository/internal/local-store";
+import { getLocalListingsForSeller, localAuctionState, localDraftListings, localListingDetailOverrides, localListingStatusOverrides, localOffers, localSellerForEmail } from "@/lib/repository/internal/local-store";
 import { mapAppraisalToCreate, mapListing, mapListingStatusToPrisma, mapListingTypeToPrisma } from "@/lib/repository/internal/mappers";
 import { createAdminAudit, ensureUser, getPrismaListingByIdOrDomain } from "@/lib/repository/internal/prisma";
 import type { LocalDraftListing } from "@/lib/repository/internal/types";
@@ -19,6 +19,8 @@ export async function createListingDraft(input: {
   registrar?: string;
   category: string;
   sellerEmail?: string;
+  listingType?: ListingType;
+  auction?: { endsAt: string; reservePrice?: number; bidIncrement: number };
 }) {
   const domain = normalizeDomain(input.domain);
   if (!isValidDomain(domain)) {
@@ -36,19 +38,27 @@ export async function createListingDraft(input: {
     value: `getthe=${cryptoSafeId()}`
   };
 
+  // Auctions launch live (active) so bids can be placed during the window; other
+  // listing types start in pending_verification and go active after ownership
+  // verification.
+  const isAuction = Boolean(input.auction);
+  const listingType: ListingType = isAuction ? "auction" : input.listingType ?? "buy_now_and_offer";
+  const startingBid = input.minimumOffer ?? Math.round(input.price * 0.65);
+
   if (!isDatabaseConfigured()) {
     const localSeller = localSellerForEmail(input.sellerEmail);
+    const id = `draft_${cryptoSafeId()}`;
     const draft: LocalDraftListing = {
-      id: `draft_${Date.now()}`,
+      id,
       domain,
       tld: getTld(domain),
-      status: "pending_verification",
+      status: isAuction ? "active" : "pending_verification",
       price: input.price,
-      minimumOffer: input.minimumOffer ?? Math.round(input.price * 0.65),
+      minimumOffer: startingBid,
       registrar: input.registrar ?? "Unknown",
       seller: localSeller.profile,
       sellerEmail: localSeller.email,
-      listingType: "buy_now_and_offer",
+      listingType,
       commissionRate: COMMISSION_RATE,
       ownershipVerified: false,
       description: appraisal.generatedSummary,
@@ -60,10 +70,19 @@ export async function createListingDraft(input: {
       brandSignals: appraisal.keywordSignals,
       createdAt: new Date().toISOString(),
       ownershipVerification,
-      appraisal
+      appraisal,
+      ...(input.auction
+        ? { auctionEndsAt: input.auction.endsAt, bidIncrement: input.auction.bidIncrement }
+        : {})
     };
 
     localDraftListings.unshift(draft);
+    if (input.auction) {
+      localAuctionState.set(id, {
+        reserveCents: input.auction.reservePrice != null ? dollarsToCents(input.auction.reservePrice) : null,
+        settledAt: null
+      });
+    }
     return draft;
   }
 
@@ -75,11 +94,14 @@ export async function createListingDraft(input: {
       domain,
       tld: getTld(domain),
       registrar: input.registrar,
-      status: "PENDING_VERIFICATION",
-      listingType: "BUY_NOW_AND_OFFER",
+      status: isAuction ? "ACTIVE" : "PENDING_VERIFICATION",
+      listingType: mapListingTypeToPrisma(listingType),
       priceCents: dollarsToCents(input.price),
-      minimumOfferCents: dollarsToCents(input.minimumOffer ?? Math.round(input.price * 0.65)),
+      minimumOfferCents: dollarsToCents(startingBid),
       commissionBps: 700,
+      auctionEndsAt: input.auction ? new Date(input.auction.endsAt) : null,
+      reservePriceCents: input.auction?.reservePrice != null ? dollarsToCents(input.auction.reservePrice) : null,
+      bidIncrementCents: input.auction ? dollarsToCents(input.auction.bidIncrement) : null,
       ownershipVerification,
       description: appraisal.generatedSummary,
       category: input.category,

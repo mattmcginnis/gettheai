@@ -213,10 +213,11 @@ function joinSql(parts: Prisma.Sql[], separator: Prisma.Sql) {
 }
 
 function toPrismaListingType(value: DomainFilters["listingType"]) {
-  const types: Record<ListingType, "BUY_NOW" | "MAKE_OFFER" | "BUY_NOW_AND_OFFER"> = {
+  const types: Record<ListingType, "BUY_NOW" | "MAKE_OFFER" | "BUY_NOW_AND_OFFER" | "AUCTION"> = {
     buy_now: "BUY_NOW",
     make_offer: "MAKE_OFFER",
-    buy_now_and_offer: "BUY_NOW_AND_OFFER"
+    buy_now_and_offer: "BUY_NOW_AND_OFFER",
+    auction: "AUCTION"
   };
 
   return value && value !== "any" ? types[value] : null;

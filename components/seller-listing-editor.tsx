@@ -126,6 +126,7 @@ export function SellerListingEditor({ listings }: { listings: DomainListing[] })
             <option value="buy_now">buy now</option>
             <option value="make_offer">make offer</option>
             <option value="buy_now_and_offer">buy now and offer</option>
+            <option value="auction">auction</option>
           </select>
         </label>
         <NumberField label="Monthly traffic" value={form.trafficMonthly} onChange={(value) => setForm({ ...form, trafficMonthly: value })} />
